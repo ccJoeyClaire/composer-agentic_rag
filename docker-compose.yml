@@ -1,0 +1,19 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.18.1
+    container_name: qdrant
+    ports:
+      # Bind to localhost only
+      - "127.0.0.1:6333:6333"
+    volumes:
+      # Persistent storage on host (Windows path relative to this compose file)
+      - ./qdrant_data:/qdrant/storage
+    env_file:
+      - .env
+    environment:
+      # Qdrant reads nested config via double-underscore env vars.
+      # Put the secret value into `.env` as:
+      #   QDRANT__SERVICE__API_KEY=your-secret
+      # QDRANT__SERVICE__API_KEY: ${QDRANT__SERVICE__API_KEY}
+      QDRANT__SERVICE__HOST: 0.0.0.0
+      QDRANT__SERVICE__HTTP_PORT: 6333

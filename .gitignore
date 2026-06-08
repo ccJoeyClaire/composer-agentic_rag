@@ -1,0 +1,81 @@
+# --- Secrets & local config ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# --- Virtual environments ---
+.venv/
+venv/
+ENV/
+env/
+
+# --- Testing & coverage ---
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# --- Type checkers & linters ---
+.mypy_cache/
+.ruff_cache/
+.pytype/
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- Local vector DB (Qdrant via docker-compose) ---
+qdrant_data/
+
+# --- ML model caches (sentence-transformers / HuggingFace) ---
+.cache/
+models/
+*.pt
+*.bin
+*.onnx
+
+# --- IDE & editor ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# --- Logs & temp ---
+*.log
+logs/
+tmp/
+temp/

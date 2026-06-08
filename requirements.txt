@@ -1,0 +1,31 @@
+# 使用该语句下载环境依赖 -> pip install -r requirements.txt
+
+# Core LLM
+openai==1.68.0
+python-dotenv==1.0.1
+
+# LangChain / LangGraph
+langchain-core==1.4.0
+langgraph==1.2.0
+
+# Data validation
+pydantic==2.11.10
+typing-extensions>=4.13.0
+
+# Tokenization
+tiktoken==0.9.0
+
+# --- Phase 2 (RAG store) ---
+qdrant-client>=1.9.0
+# sentence-transformers  (local embedder)
+
+# --- Phase 4 (add when needed) ---
+# rank-bm25              (hybrid retriever)
+sentence-transformers>=2.2.0  # cross-encoder reranker (#8)
+
+# --- Testing ---
+pytest>=8.0.0
+pytest-asyncio>=0.24.0
+
+# --- MCP tools (optional servers: markitdown-mcp, bocha-search-mcp) ---
+mcp>=1.6.0
