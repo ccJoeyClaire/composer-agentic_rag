@@ -1,19 +1,21 @@
-"""Feedback subgraph — detect user correction and plan agent response (Phase 3)."""
+"""Feedback reflection nodes — detect user correction and plan agent response.
+
+Plain graph nodes composed directly in ``agent/graph.py``. ``route_after_detect``
+returns the next routing token ("plan_feedback" to plan, "continue" to skip).
+"""
 
 from __future__ import annotations
 
 import json
 import re
 from dataclasses import dataclass
-from functools import partial
 from typing import Awaitable, Callable, Literal, TypedDict
 
 from langchain_core.messages import HumanMessage
-from langgraph.graph import END, StateGraph
 
 from agent.metadata_schema import FeedbackKind, merge_metadata
+from agent.reflection.self_rag import last_human_message
 from agent.state import AgentState
-from agent.subgraph.Self_RAG import last_human_message
 from llm.client import LLMClient
 
 DetectFeedbackFn = Callable[[str], Awaitable[dict]]
@@ -279,10 +281,11 @@ async def detect_feedback_node(
 
 
 def route_after_detect(state: AgentState) -> str:
+    """Return "plan_feedback" when feedback detected, else "continue"."""
     meta = state.get("metadata") or {}
     if meta.get("feedback_detected"):
         return "plan_feedback"
-    return "feedback_exit"
+    return "continue"
 
 
 async def plan_feedback_node(
@@ -319,40 +322,3 @@ async def plan_feedback_node(
             "feedback_hint": plan.get("hint"),
         },
     )
-
-
-async def feedback_exit_node(state: AgentState) -> dict:
-    return {}
-
-
-def build_feedback_subgraph(config: FeedbackConfig):
-    graph = StateGraph(AgentState)
-
-    graph.add_node(
-        "detect_feedback",
-        partial(
-            detect_feedback_node,
-            llm=config.llm,
-            detect_fn=config.detect_fn,
-        ),
-    )
-    graph.add_node(
-        "plan_feedback",
-        partial(
-            plan_feedback_node,
-            llm=config.llm,
-            plan_fn=config.plan_fn,
-        ),
-    )
-    graph.add_node("feedback_exit", feedback_exit_node)
-
-    graph.set_entry_point("detect_feedback")
-    graph.add_conditional_edges(
-        "detect_feedback",
-        route_after_detect,
-        {"plan_feedback": "plan_feedback", "feedback_exit": "feedback_exit"},
-    )
-    graph.add_edge("plan_feedback", "feedback_exit")
-    graph.add_edge("feedback_exit", END)
-
-    return graph.compile()

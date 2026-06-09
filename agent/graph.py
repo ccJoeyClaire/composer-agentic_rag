@@ -9,10 +9,19 @@ from langgraph.graph.state import CompiledStateGraph
 
 from agent.metadata_schema import DEFAULT_MAX_RAG_ATTEMPTS, get_metadata
 from agent.nodes import llm_node, tool_node
+from agent.reflection.feedback import (
+    FeedbackConfig,
+    detect_feedback_node,
+    plan_feedback_node,
+    route_after_detect,
+)
+from agent.reflection.self_rag import (
+    SelfRagConfig,
+    self_rag_post_node,
+    self_rag_pre_node,
+)
 from agent.state import AgentState
-from agent.subgraph.CRAG import CragConfig, build_crag_subgraph
-from agent.subgraph.RAG_FeedBack import FeedbackConfig, build_feedback_subgraph
-from agent.subgraph.Self_RAG import SelfRagConfig, build_self_rag_post_subgraph, build_self_rag_pre_subgraph
+from agent.subgraph.CRAG import CragConfig, build_crag_node
 from llm.client import LLMClient
 from tools.tool_box import ToolBox
 
@@ -127,9 +136,22 @@ def build_ReAct_agent(
     )
 
     if use_feedback:
+        feedback_config = FeedbackConfig(llm=config.llm)
         graph.add_node(
-            "feedback",
-            build_feedback_subgraph(FeedbackConfig(llm=config.llm)),
+            "detect_feedback",
+            partial(
+                detect_feedback_node,
+                llm=feedback_config.llm,
+                detect_fn=feedback_config.detect_fn,
+            ),
+        )
+        graph.add_node(
+            "plan_feedback",
+            partial(
+                plan_feedback_node,
+                llm=feedback_config.llm,
+                plan_fn=feedback_config.plan_fn,
+            ),
         )
 
     if use_self_rag:
@@ -137,29 +159,53 @@ def build_ReAct_agent(
             llm=config.llm,
             max_rag_attempts=config.max_rag_attempts,
         )
-        graph.add_node("self_rag_pre", build_self_rag_pre_subgraph(self_rag_config))
-        graph.add_node("self_rag_post", build_self_rag_post_subgraph(self_rag_config))
+        graph.add_node(
+            "self_rag_pre",
+            partial(
+                self_rag_pre_node,
+                llm=self_rag_config.llm,
+                classify_fn=self_rag_config.classify_fn,
+                max_rag_attempts=self_rag_config.max_rag_attempts,
+            ),
+        )
+        graph.add_node(
+            "self_rag_post",
+            partial(
+                self_rag_post_node,
+                llm=self_rag_config.llm,
+                grounded_fn=self_rag_config.grounded_fn,
+                max_rag_attempts=self_rag_config.max_rag_attempts,
+            ),
+        )
 
     if use_crag:
         graph.add_node(
             "crag_eval",
-            build_crag_subgraph(
+            build_crag_node(
                 CragConfig(
                     llm=config.llm,
                     max_rag_attempts=config.max_rag_attempts,
+                    tool_box=tool_box,
                 )
             ),
         )
 
+    next_after_feedback = _next_node_after_feedback(use_self_rag=use_self_rag)
     if use_feedback:
-        entry = "feedback"
-        graph.set_entry_point(entry)
-        graph.add_edge("feedback", _next_node_after_feedback(use_self_rag=use_self_rag))
+        graph.set_entry_point("detect_feedback")
+        graph.add_conditional_edges(
+            "detect_feedback",
+            route_after_detect,
+            {"plan_feedback": "plan_feedback", "continue": next_after_feedback},
+        )
+        graph.add_edge("plan_feedback", next_after_feedback)
     elif use_self_rag:
         graph.set_entry_point("self_rag_pre")
-        graph.add_edge("self_rag_pre", "llm")
     else:
         graph.set_entry_point("llm")
+
+    if use_self_rag:
+        graph.add_edge("self_rag_pre", "llm")
 
     after_llm = partial(if_after_llm, use_self_rag=use_self_rag)
     llm_targets: dict = {"tools": "tools", END: END}

@@ -1,4 +1,4 @@
-"""Verify tools.LocalTool.RAG_tool with bind_indexer / bind_retriever."""
+"""Verify tools.LocalTool.RAG_tool: bind_rag_context + legacy bind_indexer / bind_retriever."""
 
 from __future__ import annotations
 
@@ -16,13 +16,9 @@ RAG_TOOL_PACKAGE = ("tools.LocalTool.RAG_tool",)
 
 @pytest.fixture
 def reset_rag_bindings():
-    RAG_tool._indexer = None
-    RAG_tool._retriever = None
-    RAG_tool._search_top_k = 5
+    RAG_tool._context = RAG_tool.RagToolContext()
     yield
-    RAG_tool._indexer = None
-    RAG_tool._retriever = None
-    RAG_tool._search_top_k = 5
+    RAG_tool._context = RAG_tool.RagToolContext()
 
 
 @pytest.fixture
@@ -96,6 +92,71 @@ def test_rag_search_tool_returns_indexed_content(bound_rag_stack):
     )
     result = RAG_tool.RAG_search_tool("observability dashboards")
     assert "observability dashboards" in result
+
+
+@pytest.mark.unit
+def test_legacy_fixed_retriever_notes_on_options(bound_rag_stack):
+    result = RAG_tool.RAG_search_tool("observability dashboards", use_hyde=True)
+    assert "[note]" in result
+    assert "use_hyde" in result
+
+
+@pytest.mark.unit
+def test_full_context_caches_and_clamps_retriever_variants(
+    mock_embedder, in_memory_vector_store, reset_rag_bindings
+):
+    RAG_tool.bind_rag_context(
+        collection="variant_test",
+        in_memory=True,
+        store=in_memory_vector_store,
+        embedder=mock_embedder,
+        max_recall_n=10,
+    )
+    ctx = RAG_tool._context
+
+    r1, _ = ctx.resolve_retriever(use_hyde=False, use_reranker=False, recall_n=5)
+    r2, _ = ctx.resolve_retriever(use_hyde=False, use_reranker=False, recall_n=5)
+    assert r1 is r2  # same key -> cached
+
+    r3, _ = ctx.resolve_retriever(use_hyde=False, use_reranker=False, recall_n=7)
+    assert r3 is not r1  # different recall_n -> new variant
+
+    r4, notes = ctx.resolve_retriever(use_hyde=False, use_reranker=False, recall_n=999)
+    assert any("clamp" in note for note in notes)
+    assert r4.recall_n == 10
+
+
+@pytest.mark.unit
+def test_disabled_query_option_emits_note(
+    mock_embedder, in_memory_vector_store, reset_rag_bindings
+):
+    RAG_tool.bind_rag_context(
+        collection="disabled_test",
+        in_memory=True,
+        store=in_memory_vector_store,
+        embedder=mock_embedder,
+        allow_hyde=False,
+    )
+    _, notes = RAG_tool._context.resolve_retriever(
+        use_hyde=True, use_reranker=False, recall_n=None
+    )
+    assert any("use_hyde" in note for note in notes)
+
+
+@pytest.mark.unit
+def test_disabled_predict_questions_emits_note(
+    mock_embedder, in_memory_vector_store, reset_rag_bindings
+):
+    RAG_tool.bind_rag_context(
+        collection="predict_test",
+        in_memory=True,
+        store=in_memory_vector_store,
+        embedder=mock_embedder,
+        allow_predict_questions=False,
+    )
+    indexer, notes = RAG_tool._context.resolve_indexer(use_predict_questions=True)
+    assert indexer is not None
+    assert any("use_predict_questions" in note for note in notes)
 
 
 @pytest.mark.integration

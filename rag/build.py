@@ -8,6 +8,14 @@ from .core import RAGIndexer, RAGRetriever
 from .embedder.openai_embedder import OpenAIEmbedder
 from .store.qdrant_store import QdrantVectorStore
 
+DEFAULT_CHUNK_TOKENS = 512
+DEFAULT_CHUNK_OVERLAP = 64
+PARENT_WINDOW_MULTIPLIER = 6
+
+
+def parent_window_tokens(chunk_tokens: int = DEFAULT_CHUNK_TOKENS) -> int:
+    return chunk_tokens * PARENT_WINDOW_MULTIPLIER
+
 
 def _make_store(
     collection: str,
@@ -39,10 +47,19 @@ def build_RAG_indexer(
         bool, Field(description="是否启用 PredictQuestionEnricher（LLM 为每个 chunk 生成预设问题）")
     ] = False,
     use_small_to_big: Annotated[
-        bool, Field(description="是否小块索引（256 token small / 1536 parent window）")
+        bool,
+        Field(
+            description=(
+                "是否启用 small-to-big"
+                f"（{DEFAULT_CHUNK_TOKENS} child chunk / "
+                f"{parent_window_tokens()} parent window）"
+            )
+        ),
     ] = False,
     store: Optional[QdrantVectorStore] = None,
     embedder: Optional[OpenAIEmbedder] = None,
+    chunk_tokens: int = DEFAULT_CHUNK_TOKENS,
+    overlap: int = DEFAULT_CHUNK_OVERLAP,
 ) -> RAGIndexer:
     """组装离线建库用的 :class:`RAGIndexer`（chunk → embed → store）。"""
     from .chunker.semantic_chunker import SemanticChunker
@@ -52,20 +69,20 @@ def build_RAG_indexer(
     embedder = _make_embedder(embedder)
     store = _make_store(collection, in_memory=in_memory, store=store)
 
-    small_tokens = 256 if use_small_to_big else 512
-    overlap = 32 if use_small_to_big else 64
     contextual_enricher = ContextualEnricher() if use_contextual else None
     predict_question_enricher = (
         PredictQuestionEnricher() if use_predict_questions else None
     )
 
     return RAGIndexer(
-        chunker=SemanticChunker(chunk_tokens=small_tokens, overlap_tokens=overlap),
+        chunker=SemanticChunker(chunk_tokens=chunk_tokens, overlap_tokens=overlap),
         embedder=embedder,
         store=store,
         contextual_enricher=contextual_enricher,
         predict_question_enricher=predict_question_enricher,
-        small_to_big_parent_tokens=small_tokens * 6 if use_small_to_big else None,
+        small_to_big_parent_tokens=(
+            parent_window_tokens(chunk_tokens) if use_small_to_big else None
+        ),
     )
 
 
@@ -85,13 +102,20 @@ def build_RAG_retriever(
         bool, Field(description="是否用 HyDE 改写查询向量")
     ] = False,
     use_small_to_big: Annotated[
-        bool, Field(description="是否小块索引、大块返回（256/1536 token）")
+        bool,
+        Field(
+            description=(
+                "是否启用 small-to-big"
+                f"（{DEFAULT_CHUNK_TOKENS} child / {parent_window_tokens()} parent）"
+            )
+        ),
     ] = False,
     recall_n: Annotated[
         int, Field(description="向量召回条数（rerank 前）", ge=1)
     ] = 50,
     store: Optional[QdrantVectorStore] = None,
     embedder: Optional[OpenAIEmbedder] = None,
+    chunk_tokens: int = DEFAULT_CHUNK_TOKENS,
 ) -> RAGRetriever:
     """组装查询用的 :class:`RAGRetriever`（transform → retrieve → rerank）。"""
     from .document_augmentation.context_enricher import ContextualEnricher
@@ -108,7 +132,7 @@ def build_RAG_retriever(
         SmallToBigRetriever(
             inner,
             store=store,
-            parent_token_budget=1536,
+            parent_token_budget=parent_window_tokens(chunk_tokens),
         )
         if use_small_to_big
         else inner

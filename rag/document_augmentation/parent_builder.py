@@ -134,7 +134,7 @@ def _build_anchor_window_indices(
 def assign_parent_chunks(
     small_chunks: List[Chunk],
     *,
-    parent_token_budget: int = 1536,
+    parent_token_budget: int = 3072,
 ) -> List[Chunk]:
     """
     为每个 small chunk 分配 chunk_id 和 anchor_window（不写 parent_content）。

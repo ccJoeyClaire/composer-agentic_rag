@@ -1,15 +1,17 @@
-"""Self-RAG subgraphs — pre (retrieve hint) and post (grounded check)."""
+"""Self-RAG reflection nodes — pre (retrieve hint) and post (grounded check).
+
+These are plain graph nodes composed directly in ``agent/graph.py``; they only
+read/write ``AgentState.metadata`` and never need their own subgraph.
+"""
 
 from __future__ import annotations
 
 import json
 import re
 from dataclasses import dataclass
-from functools import partial
 from typing import Awaitable, Callable
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
-from langgraph.graph import END, StateGraph
 
 from agent.metadata_schema import (
     DEFAULT_MAX_RAG_ATTEMPTS,
@@ -193,7 +195,6 @@ async def self_rag_pre_node(
     else:
         need_retrieve = rule_based_need_retrieve(text)
 
-    hint = None
     if need_retrieve:
         hint = "This question may require knowledge-base search before answering."
     else:
@@ -262,35 +263,3 @@ def _heuristic_grounded(context: str, answer: str) -> bool:
         return True
     overlap = sum(1 for token in answer_tokens if token in context_lower)
     return overlap >= max(1, len(answer_tokens) // 4)
-
-
-def build_self_rag_pre_subgraph(config: SelfRagConfig):
-    graph = StateGraph(AgentState)
-    graph.add_node(
-        "self_rag_pre",
-        partial(
-            self_rag_pre_node,
-            llm=config.llm,
-            classify_fn=config.classify_fn,
-            max_rag_attempts=config.max_rag_attempts,
-        ),
-    )
-    graph.set_entry_point("self_rag_pre")
-    graph.add_edge("self_rag_pre", END)
-    return graph.compile()
-
-
-def build_self_rag_post_subgraph(config: SelfRagConfig):
-    graph = StateGraph(AgentState)
-    graph.add_node(
-        "self_rag_post",
-        partial(
-            self_rag_post_node,
-            llm=config.llm,
-            grounded_fn=config.grounded_fn,
-            max_rag_attempts=config.max_rag_attempts,
-        ),
-    )
-    graph.set_entry_point("self_rag_post")
-    graph.add_edge("self_rag_post", END)
-    return graph.compile()

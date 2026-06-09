@@ -1,11 +1,18 @@
-"""CRAG subgraph — evaluate retrieval quality after RAG_search_tool (Phase 1)."""
+"""CRAG — isolated reflection subgraph with a private state.
+
+The subgraph evaluates retrieval quality and, when passages score poorly, runs an
+internal re-retrieval loop (escalating query-time variants via ``RAG_search_tool``,
+then an optional reserved web fallback). All intermediate state lives in the private
+:class:`CragState`; only the final qualified context is written back to ``AgentState``
+by the parent wrapper node (:func:`build_crag_node`).
+"""
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, List, Optional, Tuple, TypedDict
 
 from langchain_core.messages import RemoveMessage, ToolMessage
 from langgraph.graph import END, StateGraph
@@ -19,7 +26,15 @@ from agent.reflection.parsers import extract_rag_tool_results, split_rag_chunks
 from agent.state import AgentState
 from llm.client import LLMClient
 
-ScorePassagesFn = Callable[[str, list[str]], Awaitable[list[dict]]]
+ScorePassagesFn = Callable[[str, List[str]], Awaitable[List[dict]]]
+RetrieveFn = Callable[[str, dict], Awaitable[str]]
+WebFn = Callable[[str], Awaitable[str]]
+
+# Query-time escalation ladder: each step is RAG_search_tool kwargs (reuses WS1).
+DEFAULT_ESCALATION: Tuple[dict, ...] = (
+    {"use_reranker": True, "recall_n": 50},
+    {"use_hyde": True, "use_reranker": True, "recall_n": 50},
+)
 
 CRAG_SCORE_PROMPT = """You evaluate whether each retrieved passage helps answer the query.
 
@@ -34,17 +49,38 @@ Return JSON only:
 """
 
 
+class CragState(TypedDict, total=False):
+    """Private CRAG process state (NOT the parent AgentState)."""
+
+    query: str
+    passages: List[str]
+    labels: List[dict]
+    attempt: int
+    max_attempts: int
+    methods_tried: List[str]
+    web_used: bool
+    verdict: str
+    action: str
+    final_context: str
+
+
 @dataclass
 class CragConfig:
     llm: LLMClient | None = None
     rag_tool_name: str = DEFAULT_RAG_TOOL_NAME
     max_rag_attempts: int = DEFAULT_MAX_RAG_ATTEMPTS
     score_fn: ScorePassagesFn | None = None
+    tool_box: object | None = None
+    retrieve_fn: RetrieveFn | None = None
+    web_enabled: bool = False
+    web_tool_name: str = "bocha"
+    web_fn: WebFn | None = None
+    escalation: Tuple[dict, ...] = field(default_factory=lambda: DEFAULT_ESCALATION)
 
 
-def _normalize_labels(labels: list[dict], passage_count: int) -> list[dict]:
+def _normalize_labels(labels: List[dict], passage_count: int) -> List[dict]:
     by_index = {int(item.get("index", -1)): item for item in labels}
-    normalized: list[dict] = []
+    normalized: List[dict] = []
     for index in range(passage_count):
         item = by_index.get(index, {})
         label = str(item.get("label", "ambiguous")).lower()
@@ -57,8 +93,8 @@ def _normalize_labels(labels: list[dict], passage_count: int) -> list[dict]:
 async def default_score_passages(
     llm: LLMClient,
     query: str,
-    passages: list[str],
-) -> list[dict]:
+    passages: List[str],
+) -> List[dict]:
     if not passages:
         return []
 
@@ -79,49 +115,71 @@ async def default_score_passages(
     return _normalize_labels(payload.get("labels", []), len(passages))
 
 
-async def extract_rag_context(state: AgentState, *, rag_tool_name: str) -> dict:
-    meta = dict(state.get("metadata") or {})
-    hits = extract_rag_tool_results(state["messages"], rag_tool_name=rag_tool_name)
-    if not hits:
-        return merge_metadata(
-            state,
-            {
-                "crag_verdict": "skipped",
-                "crag_action": "use",
-                "crag_labels": [],
-            },
+def compute_verdict(labels: List[dict]) -> str:
+    counts = {"correct": 0, "incorrect": 0, "ambiguous": 0}
+    for item in labels:
+        label = str(item.get("label", "ambiguous"))
+        counts[label] = counts.get(label, 0) + 1
+
+    if counts["incorrect"] > 0:
+        return "incorrect"
+    if counts["ambiguous"] > counts["correct"]:
+        return "ambiguous"
+    return "correct"
+
+
+def decide_action(
+    verdict: str,
+    *,
+    attempt: int,
+    max_attempts: int,
+    web_enabled: bool,
+    web_used: bool,
+) -> str:
+    if verdict == "correct":
+        return "use"
+    if attempt < max_attempts:
+        return "requery"
+    if web_enabled and not web_used:
+        return "web_fallback"
+    return "degrade"
+
+
+async def _do_retrieve(config: CragConfig, query: str, options: dict) -> str:
+    if config.retrieve_fn is not None:
+        return await config.retrieve_fn(query, options)
+    if config.tool_box is not None:
+        result = await config.tool_box.ainvoke(
+            config.rag_tool_name, {"query": query, **options}
         )
-
-    hit = hits[-1]
-    rag_attempt = int(meta.get("rag_attempt", 0)) + 1
-    return merge_metadata(
-        state,
-        {
-            "rag_tool_name": rag_tool_name,
-            "rag_attempt": rag_attempt,
-            "rag_last_query": hit["query"],
-            "rag_last_raw": hit["raw"],
-        },
-    )
+        if getattr(result, "error", None):
+            return ""
+        return str(getattr(result, "output", "") or "")
+    return ""
 
 
-def route_after_extract(state: AgentState) -> str:
-    meta = state.get("metadata") or {}
-    if meta.get("crag_verdict") == "skipped":
-        return "crag_exit"
-    return "score_relevance"
+async def _do_web(config: CragConfig, query: str) -> str:
+    if config.web_fn is not None:
+        return await config.web_fn(query)
+    if config.tool_box is not None:
+        result = await config.tool_box.ainvoke(config.web_tool_name, {"query": query})
+        if getattr(result, "error", None):
+            return ""
+        return str(getattr(result, "output", "") or "")
+    return ""
 
 
-async def score_relevance(
-    state: AgentState,
+# -- subgraph nodes (operate on CragState) ----------------------------------
+
+
+async def score_node(
+    state: CragState,
     *,
     llm: LLMClient | None,
     score_fn: ScorePassagesFn | None,
 ) -> dict:
-    meta = state.get("metadata") or {}
-    query = str(meta.get("rag_last_query", ""))
-    raw = str(meta.get("rag_last_raw") or "")
-    passages = split_rag_chunks(raw)
+    query = state.get("query", "")
+    passages = state.get("passages", [])
 
     if score_fn is not None:
         labels = _normalize_labels(await score_fn(query, passages), len(passages))
@@ -130,136 +188,179 @@ async def score_relevance(
     else:
         labels = [{"index": i, "label": "ambiguous"} for i in range(len(passages))]
 
-    return merge_metadata(state, {"crag_labels": labels})
+    return {"labels": labels}
 
 
-async def route_verdict(state: AgentState, *, max_rag_attempts: int) -> dict:
-    meta = state.get("metadata") or {}
-    labels = meta.get("crag_labels") or []
-    rag_attempt = int(meta.get("rag_attempt", 0))
+async def verdict_node(state: CragState, *, web_enabled: bool) -> dict:
+    verdict = compute_verdict(state.get("labels", []))
+    action = decide_action(
+        verdict,
+        attempt=int(state.get("attempt", 0)),
+        max_attempts=int(state.get("max_attempts", DEFAULT_MAX_RAG_ATTEMPTS)),
+        web_enabled=web_enabled,
+        web_used=bool(state.get("web_used", False)),
+    )
+    return {"verdict": verdict, "action": action}
 
-    counts = {"correct": 0, "incorrect": 0, "ambiguous": 0}
-    for item in labels:
-        label = str(item.get("label", "ambiguous"))
-        counts[label] = counts.get(label, 0) + 1
 
-    if counts["incorrect"] > 0:
-        overall = "incorrect"
-    elif counts["ambiguous"] > counts["correct"]:
-        overall = "ambiguous"
-    else:
-        overall = "correct"
-
-    if overall == "correct":
-        action = "use"
-    elif rag_attempt >= max_rag_attempts:
-        action = "degrade"
-    elif overall == "incorrect":
-        action = "requery"
-    else:
-        action = "requery"
-
-    patch: dict = {"crag_verdict": overall, "crag_action": action}
+def route_after_verdict(state: CragState) -> str:
+    action = state.get("action", "use")
     if action == "requery":
-        query = str(meta.get("rag_last_query", ""))
-        patch["crag_requery_hint"] = (
-            f"Previous retrieval may be insufficient. Try a more specific search for: {query}"
-        )
-    return merge_metadata(state, patch)
+        return "reretrieve"
+    if action == "web_fallback":
+        return "web"
+    return "finalize"
 
 
-def route_after_verdict(state: AgentState) -> str:
-    meta = state.get("metadata") or {}
-    action = meta.get("crag_action", "use")
-    if action == "use":
-        return "trim_context"
-    return "crag_exit"
+async def reretrieve_node(state: CragState, *, crag_config: CragConfig) -> dict:
+    attempt = int(state.get("attempt", 1))
+    ladder = crag_config.escalation or DEFAULT_ESCALATION
+    options = dict(ladder[min(attempt - 1, len(ladder) - 1)])
+    query = state.get("query", "")
 
-
-async def trim_context(state: AgentState, *, rag_tool_name: str) -> dict:
-    meta = state.get("metadata") or {}
-    raw = str(meta.get("rag_last_raw") or "")
+    raw = await _do_retrieve(crag_config, query, options)
     passages = split_rag_chunks(raw)
-    labels = meta.get("crag_labels") or []
+
+    methods = list(state.get("methods_tried", []))
+    methods.append(",".join(f"{k}={v}" for k, v in sorted(options.items())))
+
+    return {
+        "passages": passages if passages else state.get("passages", []),
+        "attempt": attempt + 1,
+        "methods_tried": methods,
+    }
+
+
+async def web_node(state: CragState, *, crag_config: CragConfig) -> dict:
+    query = state.get("query", "")
+    raw = await _do_web(crag_config, query)
+    passages = split_rag_chunks(raw)
+    methods = list(state.get("methods_tried", []))
+    methods.append("web")
+    return {
+        "passages": passages if passages else state.get("passages", []),
+        "web_used": True,
+        "methods_tried": methods,
+    }
+
+
+async def finalize_node(state: CragState) -> dict:
+    passages = state.get("passages", [])
+    labels = state.get("labels", [])
+    action = state.get("action", "use")
 
     correct_indices = {
         int(item["index"])
         for item in labels
         if str(item.get("label")) == "correct"
     }
-    if correct_indices:
+    if state.get("web_used"):
+        kept = passages
+    elif correct_indices:
         kept = [passages[i] for i in sorted(correct_indices) if i < len(passages)]
-    elif meta.get("crag_action") == "degrade":
+    elif action == "degrade":
         kept = []
     else:
         kept = passages
 
-    trimmed = "\n\n---\n\n".join(kept)
-    updates: dict = merge_metadata(state, {"rag_last_raw": trimmed})
+    return {"final_context": "\n\n---\n\n".join(kept)}
 
-    hits = extract_rag_tool_results(state["messages"], rag_tool_name=rag_tool_name)
-    if not hits:
-        return updates
 
-    tool_call_id = hits[-1]["tool_call_id"]
+def build_crag_subgraph(config: CragConfig):
+    graph = StateGraph(CragState)
+
+    graph.add_node(
+        "score",
+        partial(score_node, llm=config.llm, score_fn=config.score_fn),
+    )
+    graph.add_node("verdict", partial(verdict_node, web_enabled=config.web_enabled))
+    graph.add_node("reretrieve", partial(reretrieve_node, crag_config=config))
+    graph.add_node("web", partial(web_node, crag_config=config))
+    graph.add_node("finalize", finalize_node)
+
+    graph.set_entry_point("score")
+    graph.add_edge("score", "verdict")
+    graph.add_conditional_edges(
+        "verdict",
+        route_after_verdict,
+        {"reretrieve": "reretrieve", "web": "web", "finalize": "finalize"},
+    )
+    graph.add_edge("reretrieve", "score")
+    graph.add_edge("web", "score")
+    graph.add_edge("finalize", END)
+
+    return graph.compile()
+
+
+def _rewrite_tool_message(
+    state: AgentState,
+    *,
+    tool_call_id: str,
+    content: str,
+) -> Optional[list]:
     for message in reversed(state["messages"]):
         if not isinstance(message, ToolMessage):
             continue
         if message.tool_call_id != tool_call_id:
             continue
         new_tool_message = ToolMessage(
-            content=trimmed or "No sufficiently relevant context found.",
+            content=content or "No sufficiently relevant context found.",
             tool_call_id=tool_call_id,
             id=message.id,
         )
         if message.id:
-            updates["messages"] = [RemoveMessage(id=message.id), new_tool_message]
+            return [RemoveMessage(id=message.id), new_tool_message]
         break
-    return updates
+    return None
 
 
-async def crag_exit(state: AgentState) -> dict:
-    return {}
+def build_crag_node(config: CragConfig):
+    """Parent wrapper: map AgentState -> CragState, run subgraph, write back only the
+    final qualified context (rewrite the latest RAG ToolMessage + minimal metadata)."""
+    subgraph = build_crag_subgraph(config)
 
+    async def crag_node(state: AgentState) -> dict:
+        hits = extract_rag_tool_results(state["messages"], rag_tool_name=config.rag_tool_name)
+        if not hits:
+            return merge_metadata(
+                state,
+                {"crag_verdict": "skipped", "crag_action": "use", "crag_labels": []},
+            )
 
-def build_crag_subgraph(config: CragConfig):
-    graph = StateGraph(AgentState)
+        hit = hits[-1]
+        meta = state.get("metadata") or {}
+        attempt = int(meta.get("rag_attempt", 0)) + 1
 
-    graph.add_node(
-        "extract_rag_context",
-        partial(extract_rag_context, rag_tool_name=config.rag_tool_name),
-    )
-    graph.add_node(
-        "score_relevance",
-        partial(
-            score_relevance,
-            llm=config.llm,
-            score_fn=config.score_fn,
-        ),
-    )
-    graph.add_node(
-        "route_verdict",
-        partial(route_verdict, max_rag_attempts=config.max_rag_attempts),
-    )
-    graph.add_node(
-        "trim_context",
-        partial(trim_context, rag_tool_name=config.rag_tool_name),
-    )
-    graph.add_node("crag_exit", crag_exit)
+        init: CragState = {
+            "query": hit["query"],
+            "passages": split_rag_chunks(hit["raw"]),
+            "attempt": attempt,
+            "max_attempts": config.max_rag_attempts,
+            "methods_tried": [],
+            "web_used": False,
+        }
+        final = await subgraph.ainvoke(init)
 
-    graph.set_entry_point("extract_rag_context")
-    graph.add_conditional_edges(
-        "extract_rag_context",
-        route_after_extract,
-        {"crag_exit": "crag_exit", "score_relevance": "score_relevance"},
-    )
-    graph.add_edge("score_relevance", "route_verdict")
-    graph.add_conditional_edges(
-        "route_verdict",
-        route_after_verdict,
-        {"trim_context": "trim_context", "crag_exit": "crag_exit"},
-    )
-    graph.add_edge("trim_context", "crag_exit")
-    graph.add_edge("crag_exit", END)
+        final_context = final.get("final_context", "")
+        updates = merge_metadata(
+            state,
+            {
+                "rag_tool_name": config.rag_tool_name,
+                "rag_attempt": int(final.get("attempt", attempt)),
+                "rag_last_query": hit["query"],
+                "rag_last_raw": final_context,
+                "crag_verdict": final.get("verdict", "ambiguous"),
+                "crag_action": final.get("action", "use"),
+            },
+        )
 
-    return graph.compile()
+        rewritten = _rewrite_tool_message(
+            state,
+            tool_call_id=hit["tool_call_id"],
+            content=final_context,
+        )
+        if rewritten is not None:
+            updates["messages"] = rewritten
+        return updates
+
+    return crag_node

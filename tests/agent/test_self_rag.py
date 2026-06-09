@@ -15,10 +15,8 @@ from agent.graph import (
 )
 from agent.metadata_schema import DEFAULT_RAG_TOOL_NAME
 from agent.state import AgentState
-from agent.subgraph.Self_RAG import (
+from agent.reflection.self_rag import (
     SelfRagConfig,
-    build_self_rag_post_subgraph,
-    build_self_rag_pre_subgraph,
     rule_based_need_retrieve,
     self_rag_post_node,
     self_rag_pre_node,
@@ -133,18 +131,21 @@ async def test_self_rag_post_adds_retry_hint_when_ungrounded():
 
 
 @pytest.mark.asyncio
-async def test_self_rag_pre_subgraph_runs():
-    graph = build_self_rag_pre_subgraph(SelfRagConfig())
-    result = await graph.ainvoke(
-        {"messages": [HumanMessage(content="Explain embeddings.")], "metadata": {}}
+async def test_self_rag_pre_node_runs_with_config():
+    config = SelfRagConfig()
+    result = await self_rag_pre_node(
+        {"messages": [HumanMessage(content="Explain embeddings.")], "metadata": {}},
+        llm=config.llm,
+        classify_fn=config.classify_fn,
+        max_rag_attempts=config.max_rag_attempts,
     )
     assert result["metadata"]["self_rag_need_retrieve"] is True
 
 
 @pytest.mark.asyncio
-async def test_self_rag_post_subgraph_runs():
-    graph = build_self_rag_post_subgraph(SelfRagConfig(grounded_fn=_always_grounded))
-    result = await graph.ainvoke(
+async def test_self_rag_post_node_runs_with_config():
+    config = SelfRagConfig(grounded_fn=_always_grounded)
+    result = await self_rag_post_node(
         {
             "messages": [
                 HumanMessage(content="q"),
@@ -154,7 +155,10 @@ async def test_self_rag_post_subgraph_runs():
                 "rag_last_query": "q",
                 "rag_last_raw": "supported answer",
             },
-        }
+        },
+        llm=config.llm,
+        grounded_fn=config.grounded_fn,
+        max_rag_attempts=config.max_rag_attempts,
     )
     assert result["metadata"]["self_rag_grounded"] is True
 

@@ -37,7 +37,7 @@ RagPipeLine/
 │   ├── registry.py            # register_defaults / register_rag_tools / register_mcp_tools
 │   ├── LocalTool/
 │   │   ├── math_tool.py       # integrate_function
-│   │   └── RAG_tool.py        # RAG_index_tool, RAG_search_tool + bind_indexer / bind_retriever
+│   │   └── RAG_tool.py        # RAG_index_tool, RAG_search_tool + bind_rag_context (pluggable query-time toggles)
 │   └── MCPTool/
 │       ├── _client.py         # call_mcp_tool (stdio MCP)
 │       ├── _config.py         # MCPServerConfig from env
@@ -216,24 +216,25 @@ Bulk registration helpers: `tools/registry.py` — `register_defaults`, `registe
 | Module | Tools | Notes |
 | ------ | ----- | ----- |
 | `math_tool.py` | `integrate_function` | Pure function; sympy integral |
-| `RAG_tool.py` | `RAG_index_tool`, `RAG_search_tool` | Requires `bind_indexer()` / `bind_retriever()` at startup |
+| `RAG_tool.py` | `RAG_index_tool`, `RAG_search_tool` | Requires `bind_rag_context()` at startup (legacy `bind_indexer()` / `bind_retriever()` still supported). `RAG_search_tool` exposes runtime query-time toggles `use_hyde` / `use_reranker` / `recall_n` / `top_k`. |
 
 Tool functions use `Annotated` + Pydantic `Field` for parameter descriptions (same style as agent-facing schema source).
 
 **RAG startup pattern:**
 
 ```python
-from rag.build import build_RAG_indexer, build_RAG_retriever
-from tools.LocalTool.RAG_tool import bind_indexer, bind_retriever
-from tools.registry import register_rag_tools
+from tools.LocalTool.RAG_tool import bind_rag_context
+from tools.tool_box import ToolBox
 
-indexer = build_RAG_indexer("my_collection", in_memory=True)
-retriever = build_RAG_retriever("my_collection", in_memory=True)
-bind_indexer(indexer)
-bind_retriever(retriever)
+# Shared store+embedder; index-coupled settings fixed here, query-time toggles allowed at runtime.
+bind_rag_context(
+    collection="my_collection",
+    in_memory=True,
+    allow_hyde=True,
+    allow_reranker=True,
+)
 
 tool_box = ToolBox()
-register_rag_tools(tool_box)
 ```
 
 `RAGIndexer.as_tool()` / `RAGRetriever.as_tool()` in `rag/core.py` remain as helpers; the Agent path uses `LocalTool/RAG_tool.py`.
@@ -325,13 +326,11 @@ class RagPipeline:
 Agent integration (RAG-as-tool):
 
 ```python
-from tools.LocalTool.RAG_tool import bind_indexer, bind_retriever
-from tools.registry import register_rag_tools
+from tools.LocalTool.RAG_tool import bind_rag_context
 
-bind_indexer(indexer)
-bind_retriever(retriever)
-register_rag_tools(tool_box)
-# LangGraph ReAct (agent/graph.py) decides when to call RAG_search_tool
+bind_rag_context(collection="my_collection", in_memory=True)
+# LangGraph ReAct (agent/graph.py) decides when to call RAG_search_tool,
+# and may pass query-time toggles (use_hyde / use_reranker / recall_n / top_k).
 ```
 
 ### 6.2 RAG implementation checklist

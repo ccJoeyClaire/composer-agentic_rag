@@ -42,18 +42,24 @@ tools/
   registry.py      @local_tool / @mcp_tool，discover_packages()
   tool_box.py      autodiscover → list_tools() / ainvoke(name, args)
   LocalTool/
-    RAG_tool.py    RAG_index_tool, RAG_search_tool + bind_indexer / bind_retriever
+    RAG_tool.py    RAG_index_tool, RAG_search_tool + bind_rag_context（旧 bind_indexer / bind_retriever 仍兼容）
     math_tool.py   integrate_function（示例 local tool）
-  MCPTool/         markitdown、bocha（与反思图无直接关系）
+  MCPTool/         markitdown、bocha（bocha = CRAG 预留的 web 兜底，未启用）
 
 rag/
   core.py          RAGIndexer / RAGRetriever（Agent 不直接 import 调用）
-  build.py         build_RAG_indexer / build_RAG_retriever
+  build.py         build_RAG_indexer / build_RAG_retriever + build_retriever_variant / build_indexer_variant
+
+agent/
+  reflection/      self_rag.py、feedback.py（普通节点）、parsers.py
+  subgraph/        CRAG.py（独立 state 的子图）
 ```
+
+**RAG 工具可插拔：** `RAG_search_tool` 现暴露查询期开关 `use_hyde` / `use_reranker` / `recall_n` / `top_k`，由 LLM 在绑定时的允许范围内自选；`bind_rag_context` 共享一套 store+embedder 并按组合惰性构建并缓存 retriever 变体。索引耦合项（`use_small_to_big` / `use_contextual`）在绑定时固定，index 与 search 共享。
 
 **索引（aindex）默认不在 Agent 图里：** 建库由脚本 / 离线任务完成；Agent 运行时以 **`RAG_search_tool` 查询** 为主。若 Agent 需要运行时入库，仍通过 **`RAG_index_tool`**（同一 ToolBox 路径），而非在子图里写 `aindex`。
 
-**反思子图：** `agent/subgraph/CRAG.py`、`Self_RAG.py`、`RAG_FeedBack.py` 为占位，尚未接入 `graph.py`。
+**反思结构：** Self-RAG / Feedback 已摊平为 `agent/reflection/` 下的普通节点，直接在 `graph.py` 用条件边组合；CRAG 是 `agent/subgraph/CRAG.py` 中**带私有 `CragState` 的独立子图**，内部跑「评分 → 换检索变体重试 → （预留）web 兜底 → 定稿」循环，只把合格 context 回写主图 `AgentState`。
 
 ---
 
@@ -130,15 +136,20 @@ feedback_suggested_query: str | None
 RAG 工具在 `tools/LocalTool/RAG_tool.py` 上用 **`@local_tool`** 声明；**无需手写 `ToolInfo` 列表**。`ToolBox` 启动时 `autodiscover` 扫描 `tools.LocalTool`（或按需缩小 `packages`）。
 
 ```python
-from rag.build import build_RAG_indexer, build_RAG_retriever
-from tools.LocalTool.RAG_tool import bind_indexer, bind_retriever
+from tools.LocalTool.RAG_tool import bind_rag_context
 from tools.tool_box import ToolBox
 
-indexer = build_RAG_indexer(collection="my_kb", in_memory=True)
-retriever = build_RAG_retriever(collection="my_kb", in_memory=True)
-
-bind_indexer(indexer)
-bind_retriever(retriever, top_k=5)
+# 一次绑定共享 store+embedder + 查询期允许范围；index/search 共用固定的索引耦合项
+bind_rag_context(
+    collection="my_kb",
+    in_memory=True,
+    use_small_to_big=False,   # 索引耦合项，绑定时固定
+    use_contextual=False,
+    allow_hyde=True,          # 允许 LLM 运行时开 HyDE
+    allow_reranker=True,      # 允许 LLM 运行时开精排
+    default_top_k=5,
+    max_recall_n=50,
+)
 
 # 默认 autodiscover LocalTool + MCPTool；若 Agent 只需 RAG，可收窄 packages
 tool_box = ToolBox(
@@ -150,16 +161,16 @@ tool_box = ToolBox(
 #   RAG_index_tool, RAG_search_tool, integrate_function, ...
 ```
 
-与 `FRAMEWORK_DESIGN.md` 一致：**LLM 通过 tool_calls 触发检索**；`tool_node` 执行 `tool_box.ainvoke("RAG_search_tool", {"query": ...})`。
+与 `FRAMEWORK_DESIGN.md` 一致：**LLM 通过 tool_calls 触发检索**；`tool_node` 执行 `tool_box.ainvoke("RAG_search_tool", {"query": ..., "use_reranker": True})`。旧的 `bind_indexer` / `bind_retriever`（绑定预构建对象）仍兼容，但不支持运行时切换查询期开关。
 
-**`bind_*` 必须在首次检索前完成**；未 bind 时工具返回可读错误字符串（不抛异常）。
+**绑定必须在首次检索前完成**；未绑定时工具返回可读错误字符串（不抛异常）。被允许范围外的开关请求会被回退并在结果尾部追加 `[note] ...` 提示。
 
 ### 5.2 子图内「重搜」的两种合法方式
 
 | 方式 | 适用 | 说明 |
 |------|------|------|
-| **A. 回到 `llm`，让模型再调工具** | 默认推荐 | CRAG 子图只改 `metadata` + 可选改写 `rag_last_query` 提示；下一跳 `llm` 后再 `tool_calls` |
-| **B. 子图内直接 `tool_box.ainvoke`** | CRAG 明确重搜、不想多一轮 LLM | 调用 **同一个** `RAG_search_tool`，把结果写成 `ToolMessage` 或更新 `metadata.rag_last_raw` |
+| **A. 回到 `llm`，让模型再调工具** | 纯聊天 / 不需重搜 | 节点只改 `metadata` 提示，下一跳 `llm` 后再 `tool_calls` |
+| **B. 子图内直接 `tool_box.ainvoke`（CRAG 当前实现）** | CRAG 明确重搜 | CRAG 子图在私有 `CragState` 内按升级阶梯调 **同一个** `RAG_search_tool`（如 `use_reranker` → `use_hyde`），重评分；只把定稿合格 context 回写主图、改写最后一条 RAG `ToolMessage` |
 
 **禁止：**
 
@@ -192,8 +203,8 @@ async def invoke_rag_tool(
 
 | 场景 | 用谁 |
 |------|------|
-| 离线建库 | `build_RAG_indexer` → `bind_indexer` → `RAG_index_tool` 或脚本直接 `aindex` |
-| Agent 运行时检索 | `bind_retriever` → `RAG_search_tool`（经 `ToolBox`） |
+| 离线建库 | `build_RAG_indexer` → `bind_rag_context` → `RAG_index_tool` 或脚本直接 `aindex` |
+| Agent 运行时检索 | `bind_rag_context` → `RAG_search_tool`（经 `ToolBox`，查询期开关运行时可选） |
 | 单元 / 集成测试 | `tests/tools/test_rag_tool.py`（InMemoryVectorStore + MockEmbedder） |
 
 `RAGIndexer.as_tool()` / `RAGRetriever.as_tool()` 若仍保留，仅作脚本/helper；**反思图与 ReAct Agent 路径统一走 `RAG_tool.py`**。

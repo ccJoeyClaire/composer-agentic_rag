@@ -7,9 +7,8 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from agent.graph import AgentConfig, build_agent, build_ReAct_agent
 from agent.state import AgentState
-from agent.subgraph.RAG_FeedBack import (
+from agent.reflection.feedback import (
     FeedbackConfig,
-    build_feedback_subgraph,
     detect_feedback_node,
     heuristic_plan_feedback,
     plan_feedback_node,
@@ -93,35 +92,40 @@ async def test_plan_feedback_sets_requery_metadata():
 
 def test_route_after_detect():
     assert route_after_detect({"messages": [], "metadata": {"feedback_detected": True}}) == "plan_feedback"
-    assert route_after_detect({"messages": [], "metadata": {"feedback_detected": False}}) == "feedback_exit"
+    assert route_after_detect({"messages": [], "metadata": {"feedback_detected": False}}) == "continue"
 
 
 @pytest.mark.asyncio
-async def test_feedback_subgraph_end_to_end():
-    graph = build_feedback_subgraph(FeedbackConfig())
-    result = await graph.ainvoke(
-        {
-            "messages": [HumanMessage(content="不对，请重新检索向量数据库")],
-            "metadata": {
-                "rag_last_query": "database",
-                "rag_last_raw": "old answer context",
-            },
-        }
-    )
-    meta = result["metadata"]
-    assert meta["feedback_detected"] is True
+async def test_feedback_nodes_end_to_end():
+    config = FeedbackConfig()
+    state: AgentState = {
+        "messages": [HumanMessage(content="不对，请重新检索向量数据库")],
+        "metadata": {
+            "rag_last_query": "database",
+            "rag_last_raw": "old answer context",
+        },
+    }
+    detected = await detect_feedback_node(state, llm=config.llm, detect_fn=config.detect_fn)
+    assert detected["metadata"]["feedback_detected"] is True
+    assert route_after_detect(detected) == "plan_feedback"
+
+    state["metadata"] = detected["metadata"]
+    planned = await plan_feedback_node(state, llm=config.llm, plan_fn=config.plan_fn)
+    meta = planned["metadata"]
     assert meta["feedback_action"] == "requery"
     assert meta["feedback_suggested_query"]
 
 
 @pytest.mark.asyncio
-async def test_feedback_subgraph_clears_on_normal_question():
-    graph = build_feedback_subgraph(FeedbackConfig())
-    result = await graph.ainvoke(
-        {"messages": [HumanMessage(content="What is chunking?")], "metadata": {}}
+async def test_feedback_detect_clears_on_normal_question():
+    config = FeedbackConfig()
+    result = await detect_feedback_node(
+        {"messages": [HumanMessage(content="What is chunking?")], "metadata": {}},
+        llm=config.llm,
+        detect_fn=config.detect_fn,
     )
     assert result["metadata"]["feedback_detected"] is False
-    assert result["metadata"]["feedback_action"] == "none"
+    assert route_after_detect(result) == "continue"
 
 
 def test_build_agent_feedback_pattern():
@@ -132,7 +136,9 @@ def test_build_agent_feedback_pattern():
         AgentConfig(llm=_FakeLLM()),  # type: ignore[arg-type]
         pattern="react_feedback",
     )
-    assert "feedback" in graph.get_graph().nodes
+    nodes = graph.get_graph().nodes
+    assert "detect_feedback" in nodes
+    assert "plan_feedback" in nodes
 
 
 def test_build_agent_all_pattern():
@@ -144,7 +150,8 @@ def test_build_agent_all_pattern():
         pattern="react_all",
     )
     nodes = graph.get_graph().nodes
-    assert "feedback" in nodes
+    assert "detect_feedback" in nodes
+    assert "plan_feedback" in nodes
     assert "self_rag_pre" in nodes
     assert "self_rag_post" in nodes
     assert "crag_eval" in nodes
@@ -158,5 +165,5 @@ def test_build_react_agent_feedback_entry_before_self_rag():
         AgentConfig(llm=_FakeLLM(), enable_feedback=True, enable_self_rag=True),  # type: ignore[arg-type]
     )
     edges = {(edge.source, edge.target) for edge in graph.get_graph().edges}
-    assert ("__start__", "feedback") in edges
-    assert ("feedback", "self_rag_pre") in edges
+    assert ("__start__", "detect_feedback") in edges
+    assert ("plan_feedback", "self_rag_pre") in edges

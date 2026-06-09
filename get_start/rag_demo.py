@@ -210,7 +210,7 @@ async def run_rag_demo(
 
     notes = []
     if use_small_to_big:
-        notes.append("small-to-big (256 tok small / 1536 parent)")
+        notes.append("small-to-big (512 tok child / 3072 parent)")
     if use_contextual:
         notes.append("contextual headers + enriched embed")
     if use_hyde:

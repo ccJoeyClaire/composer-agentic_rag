@@ -1,4 +1,4 @@
-"""Tests for CRAG subgraph routing and metadata."""
+"""Tests for the isolated CRAG subgraph (private CragState) and parent wrapper."""
 
 from __future__ import annotations
 
@@ -11,9 +11,10 @@ from agent.reflection.parsers import extract_rag_tool_results, split_rag_chunks
 from agent.state import AgentState
 from agent.subgraph.CRAG import (
     CragConfig,
+    build_crag_node,
     build_crag_subgraph,
-    extract_rag_context,
-    route_verdict,
+    compute_verdict,
+    decide_action,
 )
 
 pytestmark = pytest.mark.unit
@@ -34,10 +35,40 @@ def _rag_state(
                     {"name": tool_name, "args": {"query": query}, "id": "tc_rag"},
                 ],
             ),
-            ToolMessage(content=raw, tool_call_id="tc_rag"),
+            ToolMessage(content=raw, tool_call_id="tc_rag", id="m_rag"),
         ],
         "metadata": {},
     }
+
+
+def _crag_input(query: str = "q", passages: list[str] | None = None, **kw) -> dict:
+    state = {
+        "query": query,
+        "passages": passages if passages is not None else ["a", "b"],
+        "attempt": 1,
+        "max_attempts": 2,
+        "methods_tried": [],
+        "web_used": False,
+    }
+    state.update(kw)
+    return state
+
+
+async def _score_all_correct(query: str, passages: list[str]) -> list[dict]:
+    return [{"index": i, "label": "correct"} for i in range(len(passages))]
+
+
+async def _score_mixed_for_trim(query: str, passages: list[str]) -> list[dict]:
+    labels = [{"index": 0, "label": "correct"}]
+    labels.extend({"index": i, "label": "ambiguous"} for i in range(1, len(passages)))
+    return labels
+
+
+async def _score_all_incorrect(query: str, passages: list[str]) -> list[dict]:
+    return [{"index": i, "label": "incorrect"} for i in range(len(passages))]
+
+
+# -- parsers ----------------------------------------------------------------
 
 
 def test_split_rag_chunks():
@@ -53,121 +84,140 @@ def test_extract_rag_tool_results():
     assert "chunk one" in hits[0]["raw"]
 
 
-@pytest.mark.asyncio
-async def test_extract_rag_context_skips_non_rag_tools():
-    state: AgentState = {
-        "messages": [
-            AIMessage(
-                content="",
-                tool_calls=[{"name": "math_tool", "args": {}, "id": "tc1"}],
-            ),
-            ToolMessage(content="42", tool_call_id="tc1"),
-        ],
-        "metadata": {},
-    }
-    result = await extract_rag_context(state, rag_tool_name=DEFAULT_RAG_TOOL_NAME)
-    assert result["metadata"]["crag_verdict"] == "skipped"
-    assert result["metadata"]["crag_action"] == "use"
+# -- pure verdict / action logic --------------------------------------------
+
+
+def test_compute_verdict():
+    assert compute_verdict([{"index": 0, "label": "correct"}]) == "correct"
+    assert compute_verdict([{"index": 0, "label": "incorrect"}]) == "incorrect"
+    assert compute_verdict(
+        [{"index": 0, "label": "ambiguous"}, {"index": 1, "label": "ambiguous"}]
+    ) == "ambiguous"
+
+
+def test_decide_action():
+    assert decide_action("correct", attempt=1, max_attempts=2, web_enabled=False, web_used=False) == "use"
+    assert decide_action("incorrect", attempt=1, max_attempts=2, web_enabled=False, web_used=False) == "requery"
+    assert decide_action("incorrect", attempt=2, max_attempts=2, web_enabled=False, web_used=False) == "degrade"
+    assert decide_action("incorrect", attempt=2, max_attempts=2, web_enabled=True, web_used=False) == "web_fallback"
+    assert decide_action("incorrect", attempt=2, max_attempts=2, web_enabled=True, web_used=True) == "degrade"
+
+
+# -- subgraph end-to-end (private CragState) --------------------------------
 
 
 @pytest.mark.asyncio
-async def test_extract_rag_context_records_attempt():
-    result = await extract_rag_context(
-        _rag_state(),
-        rag_tool_name=DEFAULT_RAG_TOOL_NAME,
-    )
-    meta = result["metadata"]
-    assert meta["rag_attempt"] == 1
-    assert meta["rag_last_query"] == "What is RAG?"
-    assert "chunk one" in meta["rag_last_raw"]
-
-
-async def _score_all_correct(query: str, passages: list[str]) -> list[dict]:
-    return [{"index": i, "label": "correct"} for i in range(len(passages))]
-
-
-async def _score_first_incorrect(query: str, passages: list[str]) -> list[dict]:
-    labels = [{"index": 0, "label": "incorrect"}]
-    labels.extend({"index": i, "label": "ambiguous"} for i in range(1, len(passages)))
-    return labels
-
-
-@pytest.mark.asyncio
-async def test_route_verdict_use_when_all_correct():
-    state = _rag_state()
-    state["metadata"] = {"rag_attempt": 1, "crag_labels": [{"index": 0, "label": "correct"}]}
-    result = await route_verdict(state, max_rag_attempts=2)
-    assert result["metadata"]["crag_verdict"] == "correct"
-    assert result["metadata"]["crag_action"] == "use"
-
-
-@pytest.mark.asyncio
-async def test_route_verdict_requery_when_incorrect_and_under_limit():
-    state = _rag_state()
-    state["metadata"] = {
-        "rag_attempt": 1,
-        "rag_last_query": "What is RAG?",
-        "crag_labels": [{"index": 0, "label": "incorrect"}],
-    }
-    result = await route_verdict(state, max_rag_attempts=2)
-    assert result["metadata"]["crag_verdict"] == "incorrect"
-    assert result["metadata"]["crag_action"] == "requery"
-    assert "crag_requery_hint" in result["metadata"]
-
-
-@pytest.mark.asyncio
-async def test_route_verdict_degrade_at_attempt_limit():
-    state = _rag_state()
-    state["metadata"] = {
-        "rag_attempt": 2,
-        "crag_labels": [{"index": 0, "label": "incorrect"}],
-    }
-    result = await route_verdict(state, max_rag_attempts=2)
-    assert result["metadata"]["crag_action"] == "degrade"
-
-
-@pytest.mark.asyncio
-async def test_crag_subgraph_skips_without_rag_tool():
+async def test_subgraph_use_when_all_correct():
     graph = build_crag_subgraph(CragConfig(score_fn=_score_all_correct))
+    result = await graph.ainvoke(_crag_input(passages=["a", "b"]))
+    assert result["verdict"] == "correct"
+    assert result["action"] == "use"
+    assert result["final_context"] == "a\n\n---\n\nb"
+
+
+@pytest.mark.asyncio
+async def test_subgraph_trims_to_correct_passages():
+    graph = build_crag_subgraph(CragConfig(score_fn=_score_mixed_for_trim))
+    result = await graph.ainvoke(_crag_input(passages=["keep me", "drop me"]))
+    assert result["action"] == "use"
+    assert result["final_context"] == "keep me"
+
+
+@pytest.mark.asyncio
+async def test_subgraph_reretrieves_then_succeeds():
+    calls = {"n": 0}
+
+    async def score_fn(query: str, passages: list[str]) -> list[dict]:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return [{"index": 0, "label": "incorrect"}]
+        return [{"index": i, "label": "correct"} for i in range(len(passages))]
+
+    async def retrieve_fn(query: str, options: dict) -> str:
+        return "better one\n\n---\n\nbetter two"
+
+    graph = build_crag_subgraph(
+        CragConfig(score_fn=score_fn, retrieve_fn=retrieve_fn)
+    )
+    result = await graph.ainvoke(_crag_input(passages=["bad"]))
+
+    assert result["attempt"] == 2
+    assert len(result["methods_tried"]) == 1
+    assert result["verdict"] == "correct"
+    assert result["final_context"] == "better one\n\n---\n\nbetter two"
+
+
+@pytest.mark.asyncio
+async def test_subgraph_degrades_when_exhausted():
+    async def retrieve_fn(query: str, options: dict) -> str:
+        return "still bad"
+
+    graph = build_crag_subgraph(
+        CragConfig(score_fn=_score_all_incorrect, retrieve_fn=retrieve_fn)
+    )
+    result = await graph.ainvoke(_crag_input(passages=["bad"]))
+    assert result["action"] == "degrade"
+    assert result["final_context"] == ""
+
+
+@pytest.mark.asyncio
+async def test_subgraph_web_fallback_when_enabled():
+    async def retrieve_fn(query: str, options: dict) -> str:
+        return "vector bad"
+
+    async def web_fn(query: str) -> str:
+        return "web result one"
+
+    graph = build_crag_subgraph(
+        CragConfig(
+            score_fn=_score_all_incorrect,
+            retrieve_fn=retrieve_fn,
+            web_fn=web_fn,
+            web_enabled=True,
+        )
+    )
+    result = await graph.ainvoke(_crag_input(passages=["bad"]))
+    assert result["web_used"] is True
+    assert "web" in result["methods_tried"]
+    assert "web result one" in result["final_context"]
+
+
+# -- parent wrapper node ----------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_wrapper_skips_without_rag_tool():
+    node = build_crag_node(CragConfig(score_fn=_score_all_correct))
     state: AgentState = {
         "messages": [
             AIMessage(
                 content="",
                 tool_calls=[{"name": "math_tool", "args": {}, "id": "tc1"}],
             ),
-            ToolMessage(content="42", tool_call_id="tc1"),
+            ToolMessage(content="42", tool_call_id="tc1", id="m1"),
         ],
         "metadata": {},
     }
-    result = await graph.ainvoke(state)
+    result = await node(state)
     assert result["metadata"]["crag_verdict"] == "skipped"
-
-
-async def _score_mixed_for_trim(query: str, passages: list[str]) -> list[dict]:
-    labels = [{"index": 0, "label": "correct"}]
-    labels.extend({"index": i, "label": "ambiguous"} for i in range(1, len(passages)))
-    return labels
+    assert result["metadata"]["crag_action"] == "use"
 
 
 @pytest.mark.asyncio
-async def test_crag_subgraph_trims_correct_passages():
-    graph = build_crag_subgraph(CragConfig(score_fn=_score_mixed_for_trim))
+async def test_wrapper_trims_and_rewrites_tool_message():
+    node = build_crag_node(CragConfig(score_fn=_score_mixed_for_trim))
     state = _rag_state(raw="keep me\n\n---\n\ndrop me")
-    result = await graph.ainvoke(state)
+    result = await node(state)
 
     assert result["metadata"]["crag_action"] == "use"
     assert result["metadata"]["crag_verdict"] == "correct"
-    tool_msg = result["messages"][-1]
-    assert isinstance(tool_msg, ToolMessage)
-    assert tool_msg.content == "keep me"
+    assert result["metadata"]["rag_last_raw"] == "keep me"
+
+    tool_messages = [m for m in result["messages"] if isinstance(m, ToolMessage)]
+    assert tool_messages[-1].content == "keep me"
 
 
-@pytest.mark.asyncio
-async def test_crag_subgraph_requery_metadata():
-    graph = build_crag_subgraph(CragConfig(score_fn=_score_first_incorrect))
-    result = await graph.ainvoke(_rag_state())
-    assert result["metadata"]["crag_action"] == "requery"
-    assert result["metadata"]["crag_verdict"] == "incorrect"
+# -- graph wiring -----------------------------------------------------------
 
 
 def test_route_after_crag_always_returns_llm():

@@ -153,9 +153,12 @@ M1 **不包含** GitHub Actions 配置文件；可按上式自行添加。
 
 ---
 
-## 9. M2 计划（未实施）
+## 9. M2 计划（进行中）
+
+> 逐日任务与交付标准见 [WEEKLY_EVAL_PLAN.md](./WEEKLY_EVAL_PLAN.md)；结果记入 [eval_results.md](./eval_results.md)。
 
 - [ ] 启用 `test_rag_gold_recall_at_3`，索引 Codex demo 文章并设 Recall@3 阈值
 - [ ] baseline vs `+contextual` vs `+s2b` vs `+rerank` 对比表输出
-- [ ] Agent eval：`gold_agent.jsonl` + tool 调用行为断言
+- [ ] BEIR scifact 子集 Recall@5 / nDCG@10
+- [ ] Agent eval：`gold_agent.jsonl` + mock/API 端到端断言
 - [ ] Cross-Encoder 慢测试（`@pytest.mark.slow`）

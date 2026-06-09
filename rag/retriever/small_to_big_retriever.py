@@ -186,7 +186,7 @@ class SmallToBigRetriever(BaseRetriever):
 
     用法：
         inner = VectorRetriever(embedder=embedder, store=store)
-        retriever = SmallToBigRetriever(inner, store=store, parent_token_budget=1536)
+        retriever = SmallToBigRetriever(inner, store=store, parent_token_budget=3072)
         parents = await retriever.aretrieve("query", top_k=5)
     """
 
