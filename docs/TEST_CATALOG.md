@@ -61,7 +61,7 @@ pytest -c tests/pytest.ini tests/agent/test_crag.py::test_decide_action -v
 | `test_windows_overlap_and_merge` | 两个 anchor window 重叠时能 merge | 检索多 hit 合并逻辑的基础 |
 | `test_cluster_overlapping_hits_transitive_closure` | A 与 B 重叠、B 与 C 重叠 → A,B,C 同一簇 | 传递闭包，避免漏合并 |
 | `test_materialize_parent_content_strips_char_overlap` | 拼 parent 正文时去掉相邻 chunk 字符重叠 | 防止 duplicated text |
-| `test_trim_to_token_budget` | parent 超长时按 token 预算裁剪 | 控制上下文长度 |
+| `test_expand_budget_limits_parent_count_over_top_k` | 总 token 超预算时减少 parent 数，不截断内容 | 控制上下文长度 |
 
 **⏱ 建议：** 45–60 min（先读 `assign_parent_chunks` 源码再读 test）
 

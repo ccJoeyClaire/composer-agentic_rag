@@ -11,9 +11,10 @@ Small-to-Big (#3): lazy parent windows over indexed small chunks.
 
 from __future__ import annotations
 
-from typing import List, Optional, Sequence, Set, Tuple
+from dataclasses import dataclass, field
+from typing import List, Optional, Sequence, Set, Tuple, cast
 
-from ..base import Chunk
+from ..base import AnchorWindow, Chunk, ChunkMeta
 from ..chunker.semantic_chunker import _approx_token_len
 
 # --- metadata keys（写入 Qdrant payload，query 时读取）---
@@ -32,6 +33,9 @@ WINDOW_MEMBER_COUNT_KEY = "window_member_count"  # 物化 window 包含的 small
 # 向后兼容旧字段名
 PARENT_SMALL_COUNT_KEY = WINDOW_MEMBER_COUNT_KEY
 
+# ===========================================================================
+# 索引阶段：为 chunks 打上 id, 并计算 anchor window 
+# ===========================================================================
 
 def _section_ranges(chunks: Sequence[Chunk]) -> List[Tuple[int, int]]: #sequence： 有序的序列如 list, tuple
     """按 heading_path 切分 section，返回每个 section 在 chunks 中的 [start, end) 半开区间。"""
@@ -188,16 +192,23 @@ def assign_parent_chunks(
 
     return small_chunks
 
+# ==============================================================================
+# 查询阶段：以 hit 为中心物化 parent
+# ==============================================================================
 
-def get_anchor_window(meta: dict) -> Optional[dict]:
-    """从 chunk metadata 安全读取 anchor_window；格式不合法时返回 None。"""
+def get_anchor_window(meta: ChunkMeta) -> Optional[AnchorWindow]:
+    """从 chunk metadata 安全读取 anchor_window；格式不合法时返回 None。
+
+    ``meta`` 可能来自 Qdrant payload，运行时不保证符合 ``ChunkMeta``，
+    故仍用 isinstance 兜底；类型标注仅供静态检查与编辑器补全。
+    """
     window = (meta or {}).get(ANCHOR_WINDOW_KEY)
     if not isinstance(window, dict):
         return None
     member_ids = window.get("member_ids")
     if not member_ids:
         return None
-    return window
+    return cast(AnchorWindow, window)
 
 
 def windows_overlap(a: dict, b: dict) -> bool:
@@ -223,9 +234,8 @@ def merge_windows(windows: Sequence[dict]) -> dict:
 
     ordered_ids = sorted(all_ids, key=_chunk_index_from_id)
 
+    # anchor_id 取第一个 window；``merged:`` 前缀由物化层（retriever）统一加
     anchor_id = windows[0].get("anchor_id") or ""
-    if len(windows) > 1:
-        anchor_id = f"merged:{anchor_id}"
 
     return {"anchor_id": anchor_id, "member_ids": ordered_ids}
 
@@ -240,51 +250,79 @@ def _chunk_index_from_id(chunk_id: str) -> int:
         return 0
 
 
-def cluster_overlapping_hits(hits: List[Chunk]) -> List[List[Chunk]]:
+@dataclass
+class HitCluster:
+    """一组 anchor_window 相互（传递）重叠的 hit。
+
+    member_ids 是该 cluster 所有 window 覆盖的 chunk_id 并集，
+    用于 O(1) 判断新 hit 是否与本 cluster 重叠。
+    """
+
+    hits: List[Chunk] = field(default_factory=list)
+    windows: List[AnchorWindow] = field(default_factory=list)
+    member_ids: Set[str] = field(default_factory=set)
+
+    def overlaps(self, window: AnchorWindow, ids: Set[str]) -> bool:
+        """新 window 与本 cluster 是否有重叠（member 交集或 window 重叠）。"""
+        return bool(ids & self.member_ids) or any(
+            windows_overlap(window, w) for w in self.windows
+        )
+
+    def add_hit(self, hit: Chunk, window: AnchorWindow, ids: Set[str]) -> None:
+        self.hits.append(hit)
+        self.windows.append(window)
+        self.member_ids |= ids
+
+    def absorb(self, other: HitCluster) -> None:
+        """把另一个 cluster 整个并入本 cluster（传递闭包合并）。"""
+        self.hits.extend(other.hits)
+        self.windows.extend(other.windows)
+        self.member_ids |= other.member_ids
+
+    def merged_window(self) -> AnchorWindow | None:
+        """聚类完成后的合并 window；无 window 时返回 None。"""
+        if not self.windows:
+            return None
+        if len(self.windows) == 1:
+            return self.windows[0]
+        return merge_windows(self.windows)
+
+
+def cluster_overlapping_hits(hits: List[Chunk]) -> List[HitCluster]:
     """
     将 small hits 按 anchor_window 重叠关系聚类（传递闭包）。
 
     例：hit A window [1,2,3]，hit B window [3,4,5] → 同一 cluster。
     无 window 的 hit（旧数据或未索引）单独成 cluster。
+
+    传递闭包：一个新 hit 可能同时与多个已有 cluster 重叠，此时它是连接
+    这些 cluster 的“桥”，需把它们全部合并成一个。
     """
     if not hits:
         return []
 
-    clusters: List[dict] = []
+    clusters: List[HitCluster] = []
 
     for hit in hits:
         window = get_anchor_window(hit.metadata or {})
         if window is None:
-            clusters.append({"hits": [hit], "windows": [], "ids": set()})
+            clusters.append(HitCluster(hits=[hit]))
             continue
 
-        hit_ids = set(window.get("member_ids") or [])
-        # 与已有 cluster 的 member_ids 或 window 有交集 → 归入同一 cluster
-        matching = [
-            c
-            for c in clusters
-            if hit_ids & c["ids"] or any(windows_overlap(window, w) for w in c["windows"])
-        ]
+        ids = set(window.get("member_ids") or [])
+        matching = [c for c in clusters if c.overlaps(window, ids)]
 
         if not matching:
-            clusters.append(
-                {"hits": [hit], "windows": [window], "ids": set(hit_ids)}
-            )
+            clusters.append(HitCluster(hits=[hit], windows=[window], member_ids=set(ids)))
             continue
 
         primary = matching[0]
-        primary["hits"].append(hit)
-        primary["windows"].append(window)
-        primary["ids"] |= hit_ids
-
-        # 若同时匹配多个 cluster，合并到 primary（传递闭包）
+        primary.add_hit(hit, window, ids)
         for other in matching[1:]:
-            primary["hits"].extend(other["hits"])
-            primary["windows"].extend(other["windows"])
-            primary["ids"] |= other["ids"]
+            primary.absorb(other)
             clusters.remove(other)
 
-    return [c["hits"] for c in clusters]
+    return clusters
 
 
 def materialize_parent_content(members: Sequence[Chunk]) -> str:
@@ -333,21 +371,3 @@ def materialize_parent_content(members: Sequence[Chunk]) -> str:
             last_end = end
 
     return "\n\n".join(parts)
-
-
-def trim_to_token_budget(text: str, budget: int) -> str:
-    """二分截断文本，使 token 数不超过 budget（query 时控 LLM 输入长度）。"""
-    if budget < 1 or not text:
-        return text
-    tokens = _approx_token_len(text)
-    if tokens <= budget:
-        return text
-
-    lo, hi = 0, len(text)
-    while lo < hi:
-        mid = (lo + hi + 1) // 2
-        if _approx_token_len(text[:mid]) <= budget:
-            lo = mid
-        else:
-            hi = mid - 1
-    return text[:lo].rstrip()

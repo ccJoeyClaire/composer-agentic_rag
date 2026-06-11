@@ -5,7 +5,7 @@ Small-to-Big 检索器：向量搜索 small chunk，query 时物化 parent windo
 
 规则：
 - 单 hit：直接展开该 hit 的 anchor_window（hit 即 anchor，天然居中）
-- 多 hit 且 window 重叠：merge_windows 后物化为一个 parent
+- 多 hit 且 window 重叠：聚类为 HitCluster，merged_window 后物化为一个 parent
 - 多 hit 且 window 不重叠：每个 cluster 各返回一个 parent（最多 top_k 个）
 """
 
@@ -14,20 +14,19 @@ from __future__ import annotations
 from typing import List, Optional
 
 from ..base import BaseRetriever, BaseVectorStore, Chunk
+from ..chunker.semantic_chunker import _approx_token_len
 from ..document_augmentation.parent_builder import (
     ANCHOR_WINDOW_KEY,
     CHUNK_ID_KEY,
     CHUNK_ROLE_KEY,
+    HitCluster,
     MATCHED_CHUNK_IDS_KEY,
     PARENT_CONTENT_KEY,
     PARENT_ID_KEY,
     SMALL_SNIPPET_KEY,
     WINDOW_MEMBER_COUNT_KEY,
     cluster_overlapping_hits,
-    get_anchor_window,
     materialize_parent_content,
-    merge_windows,
-    trim_to_token_budget,
 )
 
 
@@ -45,53 +44,105 @@ async def expand_small_hits_to_parents(
         small_hits: 内层 retriever 返回的 small chunk 命中（带 score）。
         top_k: 最多返回几个 parent（按 cluster 最高分排序）。
         store: 向量库，用于按 chunk_id 拉取 window 内非 hit 的 member。
-        parent_token_budget: 物化后截断到该 token 上限（None 则不截断）。
+        parent_token_budget: 与 top_k 并列约束返回数量（总预算 = budget × top_k）；
+            超出时减少 parent 数，单个 parent 始终完整物化 merged window。
     """
     if not small_hits:
         return []
 
     # 按 window 重叠关系聚类；单 hit 自然成 1 个 cluster
     clusters = cluster_overlapping_hits(small_hits)
-    # 按 cluster 内最高 score 排序，取 top_k 个 cluster
+    # 按 cluster 内最高 score 排序
     clusters.sort(
-        key=lambda group: max(h.score for h in group),
+        key=lambda cluster: max(h.score for h in cluster.hits),
         reverse=True,
     )
 
-    parents: List[Chunk] = []
+    selected = await _select_clusters_within_budget(
+        clusters,
+        top_k=top_k,
+        store=store,
+        parent_token_budget=parent_token_budget,
+    )
 
-    for group in clusters[:top_k]:
-        parent = await _materialize_cluster(
-            group,
-            store=store,
-            parent_token_budget=parent_token_budget,
-        )
+    parents: List[Chunk] = []
+    for cluster in selected:
+        parent = await _materialize_cluster(cluster, store=store)
         if parent is not None:
             parents.append(parent)
 
     return parents
 
 
-async def _materialize_cluster(
-    hits: List[Chunk],
+async def _select_clusters_within_budget(
+    clusters: List[HitCluster],
     *,
+    top_k: int,
     store: Optional[BaseVectorStore],
     parent_token_budget: Optional[int],
+) -> List[HitCluster]:
+    """
+    在 score 排序后选取 cluster：top_k 与总 token 预算并列生效。
+
+    总预算 = parent_token_budget × top_k。超出时减少 parent 数量；单个 parent
+    始终完整物化 merged window，不做内容截断。
+    """
+    if not clusters:
+        return []
+
+    if parent_token_budget is None:
+        return clusters[:top_k]
+
+    selected: List[HitCluster] = []
+    total_tokens = 0
+    max_total = parent_token_budget * top_k
+
+    for cluster in clusters:
+        if len(selected) >= top_k:
+            break
+        est = await _estimate_cluster_tokens(cluster, store=store)
+        if selected and total_tokens + est > max_total:
+            break
+        selected.append(cluster)
+        total_tokens += est
+
+    return selected
+
+
+async def _estimate_cluster_tokens(
+    cluster: HitCluster,
+    *,
+    store: Optional[BaseVectorStore],
+) -> int:
+    """估算 cluster 完整物化后的 token 数。"""
+    merged = cluster.merged_window()
+    if merged is None:
+        return max(
+            (_approx_token_len(h.content) for h in cluster.hits),
+            default=0,
+        )
+
+    member_ids: List[str] = list(merged.get("member_ids") or [])
+    members = await _resolve_members(member_ids, cluster.hits, store=store)
+    return _approx_token_len(materialize_parent_content(members))
+
+
+async def _materialize_cluster(
+    cluster: HitCluster,
+    *,
+    store: Optional[BaseVectorStore],
 ) -> Optional[Chunk]:
     """
-    将一个 hit cluster 物化为单个 parent chunk。
+    将一个 HitCluster 物化为单个 parent chunk。
 
-    cluster 内 1 个 hit → 直接用其 anchor_window；
-    多个 hit → merge_windows 合并重叠 window 后再物化。
+    有 window → 用 cluster.merged_window() 展开 member 并拼接；
+    无 window（旧索引或未启用 small-to-big）→ 原样返回 small。
     """
-    windows = []
-    for hit in hits:
-        window = get_anchor_window(hit.metadata or {})
-        if window is not None:
-            windows.append(window)
+    hits = cluster.hits
+    merged = cluster.merged_window()
 
     # 无 anchor_window（旧索引或未启用 small-to-big）→ 原样返回 small
-    if not windows:
+    if merged is None:
         best = max(hits, key=lambda h: h.score)
         meta = dict(best.metadata or {})
         return Chunk(
@@ -100,15 +151,10 @@ async def _materialize_cluster(
             score=best.score,
         )
 
-    # 单 window 直接用；多 window 合并（重叠 hit 场景）
-    merged = merge_windows(windows) if len(windows) > 1 else windows[0]
     member_ids: List[str] = list(merged.get("member_ids") or [])
 
-    # 拉取 window 内所有 member 的正文
     members = await _resolve_members(member_ids, hits, store=store)
     content = materialize_parent_content(members)
-    if parent_token_budget:
-        content = trim_to_token_budget(content, parent_token_budget)
 
     if not content.strip():
         return None
@@ -122,7 +168,7 @@ async def _materialize_cluster(
     snippets = [h.content for h in sorted(hits, key=lambda h: h.score, reverse=True)]
 
     anchor_id = merged.get("anchor_id") or member_ids[0]
-    parent_id = anchor_id if len(windows) == 1 else f"merged:{anchor_id}"
+    parent_id = anchor_id if len(cluster.windows) == 1 else f"merged:{anchor_id}"
 
     base_meta = dict(hits[0].metadata or {})
     return Chunk(
@@ -134,7 +180,7 @@ async def _materialize_cluster(
             PARENT_CONTENT_KEY: content,
             SMALL_SNIPPET_KEY: snippets[0] if len(snippets) == 1 else snippets,
             MATCHED_CHUNK_IDS_KEY: matched_ids,
-            WINDOW_MEMBER_COUNT_KEY: len(member_ids),
+            WINDOW_MEMBER_COUNT_KEY: len(members),
             ANCHOR_WINDOW_KEY: merged,
         },
         score=best_score,

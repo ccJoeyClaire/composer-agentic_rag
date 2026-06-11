@@ -2,40 +2,59 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
+
+
+class AnchorWindow(TypedDict):
+    """Lazy parent view: which small chunks form a chunk's parent window."""
+
+    anchor_id: str
+    member_ids: List[str]
+
+
+class ChunkMeta(TypedDict, total=False):
+    """All possible keys on ``Chunk.metadata`` (stored as Qdrant payload),
+    grouped by pipeline stage.
+
+    Every key is optional (``total=False``): a chunk only carries keys for the
+    stages it has passed through. This is the single source of truth for the
+    metadata shape — keep field names in sync with the key constants in
+    ``rag/document_augmentation/parent_builder.py``.
+    """
+
+    # --- Chunker ---
+    heading_path: str          # section breadcrumb, e.g. "Intro > Setup"
+    start: int                 # char offset in source document
+    end: int                   # char offset (exclusive)
+    boundary_reason: str       # why the semantic chunker split here
+
+    # --- Indexing ---
+    source: str                # file path or document id
+    chunk_id: str              # stable id, e.g. "doc.md::3"
+    chunk_index: int           # position in source document
+    section_id: str            # source + heading_path
+    anchor_window: AnchorWindow  # lazy parent view (stores member_ids only)
+    chunk_role: Literal["small", "parent"]
+    window_member_count: int   # members in a materialized parent
+    doc_title: str             # document-level augmentation (#6)
+    doc_keywords: List[str]
+    contextual_header: str     # situating header for LLM / reranker
+    embed_text: str            # text actually sent to the embedder
+    predicted_questions: List[str]  # hypothetical questions (#7)
+
+    # --- Retrieve (small-to-big) ---
+    parent_id: str             # query-time materialized parent id
+    parent_content: str        # query-time materialized parent text
+    matched_small_content: Union[str, List[str]]  # small hit snippet(s)
+    matched_chunk_ids: List[str]                  # child ids that triggered the parent
 
 
 @dataclass
 class Chunk:
-    """A retrieved or indexed text span.
-
-    metadata is a loose dict (stored as Qdrant payload). Known keys by pipeline stage:
-
-    Chunker:
-        heading_path (str): section breadcrumb, e.g. "Intro > Setup"
-        start, end (int): character offsets in source document
-        boundary_reason (str): why semantic chunker split here
-
-    Indexing:
-        source (str): file path or document id
-        chunk_id (str): stable id, e.g. "doc.md::3"
-        chunk_index (int): position in source document
-        section_id (str): source + heading_path
-        anchor_window (dict): {"anchor_id", "member_ids"} lazy parent view
-        chunk_role (str): "small" | "parent"
-        window_member_count (int): members in materialized parent
-        doc_title, doc_keywords: document-level augmentation
-        contextual_header (str): situating header for LLM / reranker
-        embed_text (str): text actually sent to the embedder
-
-    Retrieve (small-to-big):
-        parent_id, parent_content (str): query-time materialized parent
-        matched_small_content (str): small hit snippet(s)
-        matched_chunk_ids (list[str]): child ids that triggered the parent
-    """
+    """A retrieved or indexed text span. See ``ChunkMeta`` for metadata keys."""
 
     content: str
-    metadata: dict
+    metadata: ChunkMeta
     score: float = 0.0
 
 

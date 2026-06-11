@@ -10,6 +10,7 @@ from rag.document_augmentation.parent_builder import (
     CHUNK_ID_KEY,
     CHUNK_ROLE_KEY,
     PARENT_CONTENT_KEY,
+    PARENT_ID_KEY,
     assign_parent_chunks,
 )
 from rag.retriever.small_to_big_retriever import (
@@ -56,6 +57,68 @@ async def test_expand_overlapping_hits_merge_to_one_parent():
     parents = await expand_small_hits_to_parents(group, top_k=2, store=None)
     assert len(parents) == 1
     assert parents[0].metadata[CHUNK_ROLE_KEY] == "parent"
+    parent_id = parents[0].metadata[PARENT_ID_KEY]
+    assert parent_id.startswith("merged:")
+    assert not parent_id.startswith("merged:merged:")
+
+
+@pytest.mark.asyncio
+async def test_expand_budget_limits_parent_count_over_top_k():
+    """总预算 = parent_token_budget × top_k 时，宁可少返回 parent 也不截断 hit。"""
+    chunks = [
+        make_chunk(
+            "one two three four",
+            metadata={"source": "s.md", "heading_path": "A"},
+        ),
+        make_chunk(
+            "five six seven eight",
+            metadata={"source": "s.md", "heading_path": "B"},
+        ),
+        make_chunk(
+            "nine ten eleven twelve",
+            metadata={"source": "s.md", "heading_path": "C"},
+        ),
+    ]
+    assign_parent_chunks(chunks, parent_token_budget=512)
+    hits = [
+        Chunk(content=chunks[0].content, metadata=chunks[0].metadata, score=0.95),
+        Chunk(content=chunks[1].content, metadata=chunks[1].metadata, score=0.85),
+        Chunk(content=chunks[2].content, metadata=chunks[2].metadata, score=0.75),
+    ]
+
+    parents = await expand_small_hits_to_parents(
+        hits,
+        top_k=2,
+        store=None,
+        parent_token_budget=3,
+    )
+    assert len(parents) == 1
+    assert "one two three four" in parents[0].content
+    assert "five six seven eight" not in parents[0].content
+
+
+@pytest.mark.asyncio
+async def test_expand_merged_cluster_materializes_full_window():
+    """合并 window 完整物化，不做内容截断。"""
+    chunks = make_small_chunks(
+        ["one two", "three four", "five six", "seven eight"],
+        source="s.md",
+    )
+    assign_parent_chunks(chunks, parent_token_budget=9999)
+    hits = [
+        Chunk(content=chunks[0].content, metadata=chunks[0].metadata, score=0.9),
+        Chunk(content=chunks[3].content, metadata=chunks[3].metadata, score=0.8),
+    ]
+
+    parents = await expand_small_hits_to_parents(
+        hits,
+        top_k=1,
+        store=None,
+        parent_token_budget=3,
+    )
+    assert len(parents) == 1
+    assert "one two" in parents[0].content
+    assert "seven eight" in parents[0].content
 
 
 @pytest.mark.asyncio
