@@ -60,3 +60,9 @@ async def test_aenrich_chunks_prepends_header_on_retrieve():
     out = await enricher.aenrich_chunks([chunk])
     assert out[0].content.startswith("Document: demo")
     assert "answer text" in out[0].content
+
+
+# ================================================================================================================
+# PowerShell:
+#   pytest -c tests/pytest.ini tests/rag/test_contextual_enricher.py -v
+# ================================================================================================================

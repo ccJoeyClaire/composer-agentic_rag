@@ -74,6 +74,7 @@ class QdrantVectorStore(BaseVectorStore):
         host: str = "localhost",
         port: int = 6333,
         url: Optional[str] = None,
+        path: Optional[str] = None,
         api_key: Optional[str] = None,
         vector_size: Optional[int] = None,
         distance: models.Distance = models.Distance.COSINE,
@@ -82,7 +83,14 @@ class QdrantVectorStore(BaseVectorStore):
         self.vector_size = vector_size
         self.distance = distance
 
-        if url:
+        if path:
+            self.client = AsyncQdrantClient(
+                path=path,
+                api_key=api_key,
+                trust_env=False,
+                check_compatibility=False,
+            )
+        elif url:
             self.client = AsyncQdrantClient(
                 url=url,
                 api_key=api_key,

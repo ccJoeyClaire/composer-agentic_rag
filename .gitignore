@@ -53,6 +53,7 @@ coverage.xml
 
 # --- Local vector DB (Qdrant via docker-compose) ---
 qdrant_data/
+eval/.cache/
 
 # --- ML model caches (sentence-transformers / HuggingFace) ---
 .cache/

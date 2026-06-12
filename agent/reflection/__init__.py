@@ -2,11 +2,11 @@
 
 from agent.reflection.feedback import (
     FeedbackConfig,
+    default_detect_feedback,
+    default_plan_feedback,
     detect_feedback_node,
-    heuristic_plan_feedback,
     plan_feedback_node,
     route_after_detect,
-    rule_based_detect_feedback,
 )
 from agent.reflection.parsers import (
     extract_rag_tool_results,
@@ -34,6 +34,6 @@ __all__ = [
     "detect_feedback_node",
     "plan_feedback_node",
     "route_after_detect",
-    "rule_based_detect_feedback",
-    "heuristic_plan_feedback",
+    "default_detect_feedback",
+    "default_plan_feedback",
 ]

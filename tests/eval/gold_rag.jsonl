@@ -1,3 +1,0 @@
-{"query": "AGENTS.md 在这个项目里扮演什么角色？", "expected_heading_contains": "AGENTS", "expected_keywords": ["AGENTS.md", "agent"], "notes": "示例：期望 top_k 命中含 AGENTS 相关 heading 或关键词"}
-{"query": "在智能体优先的团队里，人类工程师的主要工作是什么？", "expected_heading_contains": "", "expected_keywords": ["工程师", "智能体"], "notes": "示例：中文技术文档检索"}
-{"query": "Codex 如何验证 UI 或观测性相关的问题？", "expected_heading_contains": "", "expected_keywords": ["UI", "观测"], "notes": "示例：可改为 expected_source 指向具体 md 文件名"}

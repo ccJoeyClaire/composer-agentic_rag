@@ -54,18 +54,36 @@ async def test_retriever_returns_matching_chunk(mock_embedder, in_memory_qdrant_
 @pytest.mark.asyncio
 async def test_retriever_applies_top_k_without_reranker(mock_embedder, in_memory_qdrant_store):
     indexer = RAGIndexer(
-        chunker=SemanticChunker(chunk_tokens=64, overlap_tokens=0, min_chunk_tokens=1),
+        chunker=SemanticChunker(chunk_tokens=16, overlap_tokens=0, min_chunk_tokens=1),
         embedder=mock_embedder,
         store=in_memory_qdrant_store,
     )
     text = "\n\n".join(f"Paragraph {i} about topic {i}." for i in range(6))
     await indexer.aindex(f"# Long\n\n{text}", source="long.md")
 
-    retriever = RAGRetriever(
-        retriever=VectorRetriever(
-            embedder=mock_embedder,
-            store=in_memory_qdrant_store,
-        ),
+    stored = await in_memory_qdrant_store.acount_by_source("long.md")
+    assert stored >= 3, "need multiple chunks so top_k is meaningful"
+
+    vector_retriever = VectorRetriever(
+        embedder=mock_embedder,
+        store=in_memory_qdrant_store,
     )
-    hits = await retriever.aquery("Paragraph 3 about topic 3.", top_k=2)
-    assert len(hits) <= 2
+    query = "Paragraph 3 about topic 3."
+
+    # VectorRetriever → store 必须遵守 top_k（RAGRetriever 末尾还有一次截断，不能单靠它测）
+    direct_k2 = await vector_retriever.aretrieve(query, top_k=2)
+    direct_k5 = await vector_retriever.aretrieve(query, top_k=5)
+    assert len(direct_k2) == 2
+    assert len(direct_k5) == min(5, stored)
+    assert len(direct_k5) > len(direct_k2)
+
+    retriever = RAGRetriever(retriever=vector_retriever)
+    hits_k2 = await retriever.aquery(query, top_k=2)
+    assert len(hits_k2) == 2
+    assert any(query in hit.content for hit in hits_k2)
+
+
+# ================================================================================================================
+# PowerShell:
+#   pytest -c tests/pytest.ini tests/rag/test_pipeline_integration.py -v
+# ================================================================================================================

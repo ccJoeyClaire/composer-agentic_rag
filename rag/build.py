@@ -56,6 +56,7 @@ def build_RAG_indexer(
             )
         ),
     ] = False,
+    predict_question_max_concurrency: Optional[int] = None,
     store: Optional[QdrantVectorStore] = None,
     embedder: Optional[OpenAIEmbedder] = None,
     chunk_tokens: int = DEFAULT_CHUNK_TOKENS,
@@ -70,8 +71,11 @@ def build_RAG_indexer(
     store = _make_store(collection, in_memory=in_memory, store=store)
 
     contextual_enricher = ContextualEnricher() if use_contextual else None
+    predict_kwargs: dict = {}
+    if predict_question_max_concurrency is not None:
+        predict_kwargs["max_concurrency"] = predict_question_max_concurrency
     predict_question_enricher = (
-        PredictQuestionEnricher() if use_predict_questions else None
+        PredictQuestionEnricher(**predict_kwargs) if use_predict_questions else None
     )
 
     return RAGIndexer(

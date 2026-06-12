@@ -4,7 +4,7 @@
 > **用法：** 按模块顺序阅读；每读完一节，单独跑该文件并对照断言。  
 > **配套：** [TESTING.md](./TESTING.md) · [WEEKLY_EVAL_PLAN.md](./WEEKLY_EVAL_PLAN.md)
 
-**统计：** 共 **108** 个 test function（其中 1 个 eval 主用例当前 `@pytest.mark.skip`）。
+**统计：** 共 **112** 个 test function（其中 1 个 eval 主用例当前 `@pytest.mark.skip`）。
 
 ---
 
@@ -46,9 +46,9 @@ pytest -c tests/pytest.ini tests/agent/test_crag.py::test_decide_action -v
 
 ---
 
-## 1. RAG 模块（31 个 test）
+## 1. RAG 模块（35 个 test）
 
-### 1.1 `tests/rag/test_parent_builder.py`（7）— Small-to-Big 索引侧
+### 1.1 `tests/rag/test_parent_builder.py`（8 + 1 debug）— Small-to-Big 索引侧
 
 **对应生产代码：** `rag/document_augmentation/parent_builder.py`  
 **核心概念：** 把小 chunk 挂上 `chunk_id`、`anchor_window`（父窗口成员列表），检索命中小 chunk 后再拼成大段。
@@ -56,25 +56,30 @@ pytest -c tests/pytest.ini tests/agent/test_crag.py::test_decide_action -v
 | Test | 在保护什么 | 读法提示 |
 |------|------------|----------|
 | `test_assign_parent_chunks_empty` | 空输入不崩 | 边界 case |
-| `test_assign_parent_chunks_stable_ids_and_windows` | 每个小 chunk 有稳定 id（`kb.md::1`）和 window | **最重要**，理解 S2B 索引结构 |
+| `test_assign_parent_chunks_metadata_contract` | 每个小 chunk 有稳定 id（`kb.md::1`）、section_id、window | **最重要**，理解 S2B 索引结构 |
+| `test_assign_parent_chunks_skips_windows_when_budget_disabled` | `parent_token_budget=0` 时只写 id，不写 window | 关闭 S2B 时的降级路径 |
 | `test_assign_parent_chunks_respects_section_boundaries` | 不同 `heading_path` 不跨章节合并 parent | 防止父窗口串台 |
+| `test_assign_parent_chunks_token_budget_limits_window` | 索引阶段 window 扩展受 token 预算约束 | anchor 居中扩展，邻居装不下就丢弃 |
 | `test_windows_overlap_and_merge` | 两个 anchor window 重叠时能 merge | 检索多 hit 合并逻辑的基础 |
 | `test_cluster_overlapping_hits_transitive_closure` | A 与 B 重叠、B 与 C 重叠 → A,B,C 同一簇 | 传递闭包，避免漏合并 |
 | `test_materialize_parent_content_strips_char_overlap` | 拼 parent 正文时去掉相邻 chunk 字符重叠 | 防止 duplicated text |
-| `test_expand_budget_limits_parent_count_over_top_k` | 总 token 超预算时减少 parent 数，不截断内容 | 控制上下文长度 |
+| `test_debug_assign_parent_chunks_output` | 打印索引后 metadata（需 `DEBUG_PROBES=1`） | 手工探针，默认 skip |
 
 **⏱ 建议：** 45–60 min（先读 `assign_parent_chunks` 源码再读 test）
 
 ---
 
-### 1.2 `tests/rag/test_small_to_big.py`（6）— Small-to-Big 检索侧
+### 1.2 `tests/rag/test_small_to_big.py`（8）— Small-to-Big 检索侧
 
-**对应生产代码：** `rag/retriever/small_to_big_retriever.py`
+**对应生产代码：** `rag/retriever/small_to_big_retriever.py`  
+**核心概念：** 向量命中 small chunk → 聚类 → 物化 parent；预算与 `top_k` 并列，超预算时**减少 parent 数量**，单个 parent **完整物化** merged window，不做内容截断。
 
 | Test | 在保护什么 |
 |------|------------|
 | `test_expand_single_hit_materializes_parent` | 单个小 chunk 命中 → 展开成 parent 内容 |
 | `test_expand_overlapping_hits_merge_to_one_parent` | 多个命中 window 重叠 → 只返回一个 parent |
+| `test_expand_budget_limits_parent_count_over_top_k` | 总预算 = `budget × top_k` 时少返回 parent，不截断正文 | **最重要**，理解查询侧预算策略 |
+| `test_expand_merged_cluster_materializes_full_window` | 多 hit 合并后完整物化 window（含首尾 hit） | 合并后不丢 hit、不裁 chunk |
 | `test_expand_disjoint_hits_return_multiple_parents` | 不重叠 → 多个 parent |
 | `test_expand_fetches_missing_members_from_store` | window 里有的 member 不在 hit 列表 → 从 store 回查 |
 | `test_small_to_big_retriever_empty_query` | 空 query 返回空 |
@@ -294,17 +299,18 @@ parsers（拆分 RAG 工具输出）
 
 ---
 
-### 3.4 `tests/agent/test_feedback.py`（14）— 用户纠正 / 澄清
+### 3.4 `tests/agent/test_feedback.py`（15）— 用户纠正 / 澄清
 
 **对应生产代码：** `agent/reflection/feedback.py`
 
 | Test | 在保护什么 |
 |------|------------|
-| `test_rule_based_detect_correction` | 「不对，应该是…」→ correction |
-| `test_rule_based_detect_clarify` | 「你指的是哪个…」→ clarify |
-| `test_rule_based_detect_normal_question` | 普通问题 → normal |
-| `test_heuristic_plan_requery_after_retrieval` | correction + 已有检索 → plan requery |
-| `test_heuristic_plan_clarify` | clarify → plan 澄清 |
+| `test_default_detect_feedback_correction` | LLM 判定 correction |
+| `test_default_detect_feedback_clarify` | LLM 判定 clarify |
+| `test_default_detect_feedback_normal_question` | LLM 判定普通问题 → 非 feedback |
+| `test_default_plan_requery_after_retrieval` | LLM plan：correction + 已有检索 → requery |
+| `test_default_plan_clarify` | LLM plan：clarify |
+| `test_detect_feedback_skips_without_llm` | 无 LLM 时不做 detect |
 | `test_detect_feedback_clears_when_last_message_not_human` | 最后非用户消息 → 清 feedback 标记 |
 | `test_detect_feedback_marks_correction` | detect 节点写入 metadata |
 | `test_plan_feedback_sets_requery_metadata` | plan 节点写入 requery 计划 |

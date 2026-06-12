@@ -57,3 +57,9 @@ async def test_convert_with_ocr_without_llm_key(monkeypatch):
 
     result = await convert_with_ocr("file:///tmp/scan.pdf")
     assert "OCR" in result or "OPENAI_API_KEY" in result or "LLM_API_KEY" in result
+
+
+# ================================================================================================================
+# PowerShell:
+#   pytest -c tests/pytest.ini tests/tools/test_mcp_tools.py -v
+# ================================================================================================================

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
@@ -9,45 +12,89 @@ from agent.graph import AgentConfig, build_agent, build_ReAct_agent
 from agent.state import AgentState
 from agent.reflection.feedback import (
     FeedbackConfig,
+    default_detect_feedback,
+    default_plan_feedback,
     detect_feedback_node,
-    heuristic_plan_feedback,
     plan_feedback_node,
     route_after_detect,
-    rule_based_detect_feedback,
 )
 
 pytestmark = pytest.mark.unit
 
 
-def test_rule_based_detect_correction():
-    result = rule_based_detect_feedback("That's wrong, RAG is not that.")
+def _mock_llm_response(payload: dict) -> MagicMock:
+    response = MagicMock()
+    response.content = json.dumps(payload)
+    return response
+
+
+@pytest.fixture
+def mock_llm() -> MagicMock:
+    llm = MagicMock()
+    llm.arequest_llm = AsyncMock()
+    return llm
+
+
+@pytest.mark.asyncio
+async def test_default_detect_feedback_correction(mock_llm: MagicMock):
+    mock_llm.arequest_llm.return_value = _mock_llm_response(
+        {"detected": True, "kind": "correction"}
+    )
+    result = await default_detect_feedback(mock_llm, "That's wrong, RAG is not that.")
     assert result["detected"] is True
     assert result["kind"] == "correction"
+    mock_llm.arequest_llm.assert_awaited_once()
 
 
-def test_rule_based_detect_clarify():
-    result = rule_based_detect_feedback("What do you mean by embedding?")
+@pytest.mark.asyncio
+async def test_default_detect_feedback_clarify(mock_llm: MagicMock):
+    mock_llm.arequest_llm.return_value = _mock_llm_response(
+        {"detected": True, "kind": "clarify"}
+    )
+    result = await default_detect_feedback(mock_llm, "What do you mean by embedding?")
     assert result["detected"] is True
     assert result["kind"] == "clarify"
 
 
-def test_rule_based_detect_normal_question():
-    result = rule_based_detect_feedback("What is vector search?")
+@pytest.mark.asyncio
+async def test_default_detect_feedback_normal_question(mock_llm: MagicMock):
+    mock_llm.arequest_llm.return_value = _mock_llm_response(
+        {"detected": False, "kind": None}
+    )
+    result = await default_detect_feedback(mock_llm, "What is vector search?")
     assert result["detected"] is False
 
 
-def test_heuristic_plan_requery_after_retrieval():
-    plan = heuristic_plan_feedback(
+@pytest.mark.asyncio
+async def test_default_plan_requery_after_retrieval(mock_llm: MagicMock):
+    mock_llm.arequest_llm.return_value = _mock_llm_response(
+        {
+            "action": "requery",
+            "kind": "correction",
+            "suggested_query": "hybrid retrieval",
+            "hint": "Search again with a refined query.",
+        }
+    )
+    plan = await default_plan_feedback(
+        mock_llm,
         "That's wrong, search again for hybrid retrieval.",
         {"rag_last_query": "RAG basics", "rag_last_raw": "old context"},
     )
     assert plan["action"] == "requery"
-    assert plan["suggested_query"] is not None
-    assert "feedback" not in (plan.get("hint") or "").lower() or plan.get("hint")
+    assert plan["suggested_query"] == "hybrid retrieval"
 
 
-def test_heuristic_plan_clarify():
-    plan = heuristic_plan_feedback("能解释一下吗？", {})
+@pytest.mark.asyncio
+async def test_default_plan_clarify(mock_llm: MagicMock):
+    mock_llm.arequest_llm.return_value = _mock_llm_response(
+        {
+            "action": "clarify",
+            "kind": "clarify",
+            "suggested_query": None,
+            "hint": "Ask what was unclear.",
+        }
+    )
+    plan = await default_plan_feedback(mock_llm, "能解释一下吗？", {})
     assert plan["action"] == "clarify"
 
 
@@ -62,18 +109,39 @@ async def test_detect_feedback_clears_when_last_message_not_human():
 
 
 @pytest.mark.asyncio
-async def test_detect_feedback_marks_correction():
+async def test_detect_feedback_marks_correction(mock_llm: MagicMock):
+    mock_llm.arequest_llm.return_value = _mock_llm_response(
+        {"detected": True, "kind": "correction"}
+    )
     state: AgentState = {
         "messages": [HumanMessage(content="不对，你答错了")],
         "metadata": {},
     }
-    result = await detect_feedback_node(state, llm=None, detect_fn=None)
+    result = await detect_feedback_node(state, llm=mock_llm, detect_fn=None)
     assert result["metadata"]["feedback_detected"] is True
     assert result["metadata"]["feedback_kind"] == "correction"
 
 
 @pytest.mark.asyncio
-async def test_plan_feedback_sets_requery_metadata():
+async def test_detect_feedback_skips_without_llm():
+    state: AgentState = {
+        "messages": [HumanMessage(content="不对，你答错了")],
+        "metadata": {},
+    }
+    result = await detect_feedback_node(state, llm=None, detect_fn=None)
+    assert result["metadata"]["feedback_detected"] is False
+
+
+@pytest.mark.asyncio
+async def test_plan_feedback_sets_requery_metadata(mock_llm: MagicMock):
+    mock_llm.arequest_llm.return_value = _mock_llm_response(
+        {
+            "action": "requery",
+            "kind": "correction",
+            "suggested_query": "hybrid retrieval",
+            "hint": "Refine the search query.",
+        }
+    )
     state: AgentState = {
         "messages": [HumanMessage(content="That's wrong, try hybrid retrieval instead.")],
         "metadata": {
@@ -83,7 +151,7 @@ async def test_plan_feedback_sets_requery_metadata():
             "rag_last_raw": "context",
         },
     }
-    result = await plan_feedback_node(state, llm=None, plan_fn=None)
+    result = await plan_feedback_node(state, llm=mock_llm, plan_fn=None)
     meta = result["metadata"]
     assert meta["feedback_action"] == "requery"
     assert meta["feedback_suggested_query"]
@@ -96,8 +164,21 @@ def test_route_after_detect():
 
 
 @pytest.mark.asyncio
-async def test_feedback_nodes_end_to_end():
-    config = FeedbackConfig()
+async def test_feedback_nodes_end_to_end(mock_llm: MagicMock):
+    mock_llm.arequest_llm = AsyncMock(
+        side_effect=[
+            _mock_llm_response({"detected": True, "kind": "correction"}),
+            _mock_llm_response(
+                {
+                    "action": "requery",
+                    "kind": "correction",
+                    "suggested_query": "向量数据库",
+                    "hint": "Re-search the vector database.",
+                }
+            ),
+        ]
+    )
+    config = FeedbackConfig(llm=mock_llm)
     state: AgentState = {
         "messages": [HumanMessage(content="不对，请重新检索向量数据库")],
         "metadata": {
@@ -117,12 +198,14 @@ async def test_feedback_nodes_end_to_end():
 
 
 @pytest.mark.asyncio
-async def test_feedback_detect_clears_on_normal_question():
-    config = FeedbackConfig()
+async def test_feedback_detect_clears_on_normal_question(mock_llm: MagicMock):
+    mock_llm.arequest_llm.return_value = _mock_llm_response(
+        {"detected": False, "kind": None}
+    )
     result = await detect_feedback_node(
         {"messages": [HumanMessage(content="What is chunking?")], "metadata": {}},
-        llm=config.llm,
-        detect_fn=config.detect_fn,
+        llm=mock_llm,
+        detect_fn=None,
     )
     assert result["metadata"]["feedback_detected"] is False
     assert route_after_detect(result) == "continue"
@@ -167,3 +250,9 @@ def test_build_react_agent_feedback_entry_before_self_rag():
     edges = {(edge.source, edge.target) for edge in graph.get_graph().edges}
     assert ("__start__", "detect_feedback") in edges
     assert ("plan_feedback", "self_rag_pre") in edges
+
+
+# ================================================================================================================
+# PowerShell:
+#   pytest -c tests/pytest.ini tests/agent/test_feedback.py -v
+# ================================================================================================================

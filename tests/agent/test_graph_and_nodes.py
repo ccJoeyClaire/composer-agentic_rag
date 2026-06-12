@@ -145,3 +145,9 @@ async def test_llm_node_passes_tools_to_client():
     assert kwargs["tool_calls"] is True
     assert kwargs["tools"] == []
     assert "messages" in result
+
+
+# ================================================================================================================
+# PowerShell:
+#   pytest -c tests/pytest.ini tests/agent/test_graph_and_nodes.py -v
+# ================================================================================================================

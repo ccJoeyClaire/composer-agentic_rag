@@ -57,3 +57,9 @@ Completely different subject about baking bread with yeast and flour."""
 
     reasons = [c.metadata.get("boundary_reason", "") for c in tight_chunks]
     assert any("semantic_break" in r for r in reasons)
+
+
+# ================================================================================================================
+# PowerShell:
+#   pytest -c tests/pytest.ini tests/rag/test_semantic_chunker.py -v
+# ================================================================================================================

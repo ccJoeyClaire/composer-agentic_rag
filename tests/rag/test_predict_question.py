@@ -124,3 +124,9 @@ async def test_predict_question_enricher_aenrich_for_index():
 
     assert out[0].metadata["source"] == "doc.md"
     assert out[0].metadata["predicted_questions"] == ["Why beta?"]
+
+
+# ================================================================================================================
+# PowerShell:
+#   pytest -c tests/pytest.ini tests/rag/test_predict_question.py -v
+# ================================================================================================================

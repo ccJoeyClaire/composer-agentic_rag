@@ -168,6 +168,42 @@ def test_cluster_overlapping_hits_transitive_closure():
     assert merged["member_ids"] == ["d::0", "d::1", "d::2"]
 
 
+def test_cluster_overlapping_hits_bridges_disjoint_clusters():
+    """桥接 hit 同时撞上两个已有 cluster 时，absorb 把它们合成一簇。"""
+    hit_left = make_chunk(
+        "left",
+        metadata={
+            CHUNK_ID_KEY: "d::0",
+            ANCHOR_WINDOW_KEY: {"anchor_id": "d::0", "member_ids": ["d::0", "d::1"]},
+        },
+        score=0.9,
+    )
+    hit_right = make_chunk(
+        "right",
+        metadata={
+            CHUNK_ID_KEY: "d::3",
+            ANCHOR_WINDOW_KEY: {"anchor_id": "d::3", "member_ids": ["d::3", "d::4"]},
+        },
+        score=0.7,
+    )
+    hit_bridge = make_chunk(
+        "bridge",
+        metadata={
+            CHUNK_ID_KEY: "d::2",
+            ANCHOR_WINDOW_KEY: {"anchor_id": "d::2", "member_ids": ["d::1", "d::2", "d::3"]},
+        },
+        score=0.8,
+    )
+
+    # 顺序重要：先建两簇，再由 bridge 触发 absorb
+    clusters = cluster_overlapping_hits([hit_left, hit_right, hit_bridge])
+    assert len(clusters) == 1
+    assert len(clusters[0].hits) == 3
+    merged = clusters[0].merged_window()
+    assert merged is not None
+    assert merged["member_ids"] == ["d::0", "d::1", "d::2", "d::3", "d::4"]
+
+
 def test_materialize_parent_content_strips_char_overlap():
     members = [
         Chunk(
@@ -208,10 +244,10 @@ def test_debug_assign_parent_chunks_output():
     print("\n--- metadata_diff ---")
     print(json.dumps(diff, indent=2, sort_keys=True, ensure_ascii=False))
 
-#================================================================================================================
-# 启用探针：
+# ================================================================================================================
 # PowerShell:
-# $env:DEBUG_PROBES=1; python -m pytest tests/rag/test_parent_builder.py::test_debug_assign_parent_chunks_output -s
-# cmd:
-# set DEBUG_PROBES=1 && python -m pytest tests/rag/test_parent_builder.py::test_debug_assign_parent_chunks_output -s
-#================================================================================================================
+#   pytest -c tests/pytest.ini tests/rag/test_parent_builder.py -v
+#
+# Debug probe (single test, with output):
+#   $env:DEBUG_PROBES=1; pytest -c tests/pytest.ini tests/rag/test_parent_builder.py::test_debug_assign_parent_chunks_output -s
+# ================================================================================================================

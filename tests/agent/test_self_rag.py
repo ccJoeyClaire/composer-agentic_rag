@@ -227,3 +227,9 @@ def test_build_agent_full_pattern_has_crag_and_self_rag():
     assert "self_rag_pre" in nodes
     assert "self_rag_post" in nodes
     assert "crag_eval" in nodes
+
+
+# ================================================================================================================
+# PowerShell:
+#   pytest -c tests/pytest.ini tests/agent/test_self_rag.py -v
+# ================================================================================================================

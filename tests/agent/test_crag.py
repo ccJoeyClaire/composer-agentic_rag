@@ -246,3 +246,9 @@ def test_build_agent_react_crag_pattern():
         pattern="react_crag",
     )
     assert "crag_eval" in graph.get_graph().nodes
+
+
+# ================================================================================================================
+# PowerShell:
+#   pytest -c tests/pytest.ini tests/agent/test_crag.py -v
+# ================================================================================================================

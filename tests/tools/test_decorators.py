@@ -46,3 +46,9 @@ async def test_local_tool_invoked_via_isolated_tool_box(math_tool_box):
     assert result.error is None
     assert result.output == pytest.approx(1 / 3)
     assert result.source == "local"
+
+
+# ================================================================================================================
+# PowerShell:
+#   pytest -c tests/pytest.ini tests/tools/test_decorators.py -v
+# ================================================================================================================

@@ -53,3 +53,9 @@ def test_local_tool_decorator_sets_metadata():
 def test_autodiscover_can_be_disabled():
     box = ToolBox(autodiscover=False)
     assert box.list_tools() == []
+
+
+# ================================================================================================================
+# PowerShell:
+#   pytest -c tests/pytest.ini tests/tools/test_tool_box.py -v
+# ================================================================================================================

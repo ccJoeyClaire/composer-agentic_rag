@@ -191,3 +191,9 @@ async def test_small_to_big_retriever_recall_multiplier():
     retriever = SmallToBigRetriever(spy, recall_multiplier=4)
     await retriever.aretrieve("q", top_k=2)
     assert spy.last_top_k == 8
+
+
+# ================================================================================================================
+# PowerShell:
+#   pytest -c tests/pytest.ini tests/rag/test_small_to_big.py -v
+# ================================================================================================================

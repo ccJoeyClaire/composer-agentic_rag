@@ -178,3 +178,9 @@ async def test_rag_tools_via_tool_box(rag_tool_box, bound_rag_stack):
     )
     assert search_result.error is None
     assert "langgraph agent retrieval" in str(search_result.output)
+
+
+# ================================================================================================================
+# PowerShell:
+#   pytest -c tests/pytest.ini tests/tools/test_rag_tool.py -v
+# ================================================================================================================
