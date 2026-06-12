@@ -6,7 +6,8 @@
 
 | Date | Profile | Recall@3 | Cases | Notes |
 |------|---------|----------|-------|-------|
-| 2026-06-12 | baseline..full | 1.00 | 1 | smoke，`--in-memory` 本地 Qdrant |
+| 2026-06-12 | baseline..full | 1.00 | 1 | smoke，Docker Qdrant（127.0.0.1:6333） |
+| 2026-06-12 | baseline..full | 1.00 | 1 | smoke，`--in-memory` 本地 Qdrant（eval/.cache/） |
 
 ## BEIR scifact（500 corpus / 100 queries）
 
@@ -28,7 +29,21 @@
 
 （周日填写）
 
-## Smoke (smoke) — 2026-06-12
+## Smoke (smoke) — 2026-06-12 — Docker
+
+> `python -m eval.run_smoke --dataset smoke --recreate`（无 `--in-memory`）
+
+| Profile | Recall@3 | Chunks | Index OK |
+|---------|----------|--------|----------|
+| baseline | 1.00 | 41 | yes |
+| contextual | 1.00 | 41 | yes |
+| s2b | 1.00 | 41 | yes |
+| predict_q | 1.00 | 41 | yes |
+| full | 1.00 | 41 | yes |
+
+## Smoke (smoke) — 2026-06-12 — 本地缓存
+
+> `python -m eval.run_smoke --dataset smoke --in-memory --recreate`
 
 | Profile | Recall@3 | Chunks | Index OK |
 |---------|----------|--------|----------|
