@@ -13,9 +13,16 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.mark.asyncio
-async def test_indexer_stores_chunks(mock_embedder, in_memory_qdrant_store):
+async def test_indexer_stores_chunks(
+    mock_embedder, mock_chunker_embedding_client, in_memory_qdrant_store
+):
     indexer = RAGIndexer(
-        chunker=SemanticChunker(chunk_tokens=128, overlap_tokens=0, min_chunk_tokens=1),
+        chunker=SemanticChunker(
+            chunk_tokens=128,
+            overlap_tokens=0,
+            min_chunk_tokens=1,
+            embedding_client=mock_chunker_embedding_client,
+        ),
         embedder=mock_embedder,
         store=in_memory_qdrant_store,
         contextual_enricher=ContextualEnricher(),
@@ -29,9 +36,16 @@ async def test_indexer_stores_chunks(mock_embedder, in_memory_qdrant_store):
 
 
 @pytest.mark.asyncio
-async def test_retriever_returns_matching_chunk(mock_embedder, in_memory_qdrant_store):
+async def test_retriever_returns_matching_chunk(
+    mock_embedder, mock_chunker_embedding_client, in_memory_qdrant_store
+):
     indexer = RAGIndexer(
-        chunker=SemanticChunker(chunk_tokens=256, overlap_tokens=0, min_chunk_tokens=1),
+        chunker=SemanticChunker(
+            chunk_tokens=256,
+            overlap_tokens=0,
+            min_chunk_tokens=1,
+            embedding_client=mock_chunker_embedding_client,
+        ),
         embedder=mock_embedder,
         store=in_memory_qdrant_store,
     )
@@ -52,9 +66,16 @@ async def test_retriever_returns_matching_chunk(mock_embedder, in_memory_qdrant_
 
 
 @pytest.mark.asyncio
-async def test_retriever_applies_top_k_without_reranker(mock_embedder, in_memory_qdrant_store):
+async def test_retriever_applies_top_k_without_reranker(
+    mock_embedder, mock_chunker_embedding_client, in_memory_qdrant_store
+):
     indexer = RAGIndexer(
-        chunker=SemanticChunker(chunk_tokens=16, overlap_tokens=0, min_chunk_tokens=1),
+        chunker=SemanticChunker(
+            chunk_tokens=16,
+            overlap_tokens=0,
+            min_chunk_tokens=1,
+            embedding_client=mock_chunker_embedding_client,
+        ),
         embedder=mock_embedder,
         store=in_memory_qdrant_store,
     )

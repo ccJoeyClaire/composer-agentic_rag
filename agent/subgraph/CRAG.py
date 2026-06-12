@@ -26,15 +26,23 @@ from agent.reflection.parsers import extract_rag_tool_results, split_rag_chunks
 from agent.state import AgentState
 from llm.client import LLMClient
 
+from rag.config import get_rag_config
+
 ScorePassagesFn = Callable[[str, List[str]], Awaitable[List[dict]]]
 RetrieveFn = Callable[[str, dict], Awaitable[str]]
 WebFn = Callable[[str], Awaitable[str]]
 
-# Query-time escalation ladder: each step is RAG_search_tool kwargs (reuses WS1).
-DEFAULT_ESCALATION: Tuple[dict, ...] = (
-    {"use_reranker": True, "recall_n": 50},
-    {"use_hyde": True, "use_reranker": True, "recall_n": 50},
-)
+
+def default_escalation() -> Tuple[dict, ...]:
+    """Query-time escalation ladder from ``config.yaml`` retriever.recall_n."""
+    recall_n = get_rag_config().retriever.recall_n
+    return (
+        {"use_reranker": True, "recall_n": recall_n},
+        {"use_hyde": True, "use_reranker": True, "recall_n": recall_n},
+    )
+
+
+DEFAULT_ESCALATION: Tuple[dict, ...] = default_escalation()
 
 CRAG_SCORE_PROMPT = """You evaluate whether each retrieved passage helps answer the query.
 

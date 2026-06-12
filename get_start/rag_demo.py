@@ -132,7 +132,7 @@ def run_chunk_demo(*, compare: bool, preview: int, show_all: bool) -> list:
     _safe_print(f"Article: {ARTICLE_PATH.name}")
     _safe_print(f"Chars: {len(text)}, lines: {text.count(chr(10)) + 1}")
 
-    semantic = SemanticChunker(chunk_tokens=512, overlap_tokens=64)
+    semantic = SemanticChunker()
     sem_chunks = semantic.run(text)
     _print_chunk_report(
         sem_chunks,
@@ -142,7 +142,7 @@ def run_chunk_demo(*, compare: bool, preview: int, show_all: bool) -> list:
     )
 
     if compare:
-        md_chunks = MarkdownChunker(chunk_tokens=512, overlap_tokens=64).run(text)
+        md_chunks = MarkdownChunker().run(text)
         _print_chunk_report(
             md_chunks,
             title="MarkdownChunker (token budget only)",

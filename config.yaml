@@ -1,0 +1,22 @@
+chunker:
+  chunk_tokens: 512
+  overlap_tokens: 64
+#===== semantic_chunker =====
+  break_similarity: 0.5
+#====== small-to-big =====
+  min_chunk_tokens: 120
+
+retriever:
+  recall_n: 50
+  top_k: 3
+
+profiles:
+  baseline: {}
+  contextual: { use_contextual: true }
+  s2b: { use_small_to_big: true }
+  predict_q: { use_predict_questions: true }
+  full:
+    use_contextual: true
+    use_small_to_big: true
+    use_hyde: true
+    use_reranker: true

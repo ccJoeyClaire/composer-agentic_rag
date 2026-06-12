@@ -12,6 +12,7 @@ from rag.build import (
     build_RAG_indexer,
     build_RAG_retriever,
 )
+from rag.config import get_rag_config
 from rag.core import RAGIndexer, RAGRetriever
 from rag.embedder.openai_embedder import OpenAIEmbedder
 from rag.store.qdrant_store import QdrantVectorStore
@@ -49,9 +50,15 @@ class RagToolContext:
     # Query-time allow-range + defaults.
     allow_hyde: bool = True
     allow_reranker: bool = True
-    default_recall_n: int = 50
-    max_recall_n: int = 50
-    default_top_k: int = 5
+    default_recall_n: int = field(
+        default_factory=lambda: get_rag_config().retriever.recall_n
+    )
+    max_recall_n: int = field(
+        default_factory=lambda: get_rag_config().retriever.recall_n
+    )
+    default_top_k: int = field(
+        default_factory=lambda: get_rag_config().retriever.top_k
+    )
 
     # Index-time allow-range.
     allow_predict_questions: bool = True
@@ -176,9 +183,9 @@ def bind_rag_context(
     use_contextual: bool = False,
     allow_hyde: bool = True,
     allow_reranker: bool = True,
-    default_top_k: int = 5,
-    default_recall_n: int = 50,
-    max_recall_n: int = 50,
+    default_top_k: int | None = None,
+    default_recall_n: int | None = None,
+    max_recall_n: int | None = None,
     allow_predict_questions: bool = True,
     store: Optional[QdrantVectorStore] = None,
     embedder: Optional[OpenAIEmbedder] = None,
@@ -193,6 +200,14 @@ def bind_rag_context(
     global _context
     shared_embedder = _make_embedder(embedder)
     shared_store = _make_store(collection, in_memory=in_memory, store=store)
+    retriever_cfg = get_rag_config().retriever
+    resolved_top_k = default_top_k if default_top_k is not None else retriever_cfg.top_k
+    resolved_recall_n = (
+        default_recall_n if default_recall_n is not None else retriever_cfg.recall_n
+    )
+    resolved_max_recall = (
+        max_recall_n if max_recall_n is not None else resolved_recall_n
+    )
     _context = RagToolContext(
         collection=collection,
         in_memory=in_memory,
@@ -202,9 +217,9 @@ def bind_rag_context(
         use_contextual=use_contextual,
         allow_hyde=allow_hyde,
         allow_reranker=allow_reranker,
-        default_recall_n=default_recall_n,
-        max_recall_n=max_recall_n,
-        default_top_k=default_top_k,
+        default_recall_n=resolved_recall_n,
+        max_recall_n=resolved_max_recall,
+        default_top_k=resolved_top_k,
         allow_predict_questions=allow_predict_questions,
     )
     return _context
@@ -215,10 +230,12 @@ def bind_indexer(indexer: RAGIndexer) -> None:
     _context.fixed_indexer = indexer
 
 
-def bind_retriever(retriever: RAGRetriever, *, top_k: int = 5) -> None:
+def bind_retriever(retriever: RAGRetriever, *, top_k: int | None = None) -> None:
     """Legacy: pin a prebuilt retriever onto the active context (options ignored)."""
     _context.fixed_retriever = retriever
-    _context.default_top_k = top_k
+    _context.default_top_k = (
+        top_k if top_k is not None else get_rag_config().retriever.top_k
+    )
 
 
 def _run_async(coro):

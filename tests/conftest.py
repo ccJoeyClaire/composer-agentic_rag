@@ -130,6 +130,24 @@ def _metadata_dict_diff(
     }
 
 
+def _deterministic_vector(text: str, *, dim: int) -> List[float]:
+    digest = hashlib.sha256(text.encode("utf-8")).digest()
+    raw = [float(b) / 255.0 for b in digest[:dim]]
+    if len(raw) < dim:
+        raw.extend([0.0] * (dim - len(raw)))
+    return raw
+
+
+class MockChunkerEmbeddingClient:
+    """Deterministic sync client for SemanticChunker unit/integration tests."""
+
+    def __init__(self, dim: int = 8) -> None:
+        self.dim = dim
+
+    def embed_texts(self, texts: List[str]) -> List[List[float]]:
+        return [_deterministic_vector(t, dim=self.dim) for t in texts]
+
+
 class MockEmbedder(BaseEmbedder):
     """Deterministic embedder: identical text → identical vector (cosine-friendly)."""
 
@@ -137,11 +155,7 @@ class MockEmbedder(BaseEmbedder):
         self.dim = dim
 
     def _vectorize(self, text: str) -> List[float]:
-        digest = hashlib.sha256(text.encode("utf-8")).digest()
-        raw = [float(b) / 255.0 for b in digest[: self.dim]]
-        if len(raw) < self.dim:
-            raw.extend([0.0] * (self.dim - len(raw)))
-        return raw
+        return _deterministic_vector(text, dim=self.dim)
 
     async def aembed_texts(self, texts: List[str]) -> List[List[float]]:
         return [self._vectorize(t) for t in texts]
@@ -174,6 +188,11 @@ class InMemoryChunkStore(BaseVectorStore):
 @pytest.fixture
 def mock_embedder() -> MockEmbedder:
     return MockEmbedder(dim=8)
+
+
+@pytest.fixture
+def mock_chunker_embedding_client() -> MockChunkerEmbeddingClient:
+    return MockChunkerEmbeddingClient(dim=8)
 
 
 @pytest.fixture

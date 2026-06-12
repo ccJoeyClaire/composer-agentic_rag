@@ -17,6 +17,7 @@ setup_eval_env()
 from eval.metrics.recall import load_gold_cases, mean_recall_at_k, recall_at_k
 from eval.paths import dataset_dir
 from eval.profiles import RAGProfile, build_retriever_for_profile, collection_name
+from rag.config import get_rag_config
 
 
 async def search_dataset(
@@ -24,10 +25,13 @@ async def search_dataset(
     dataset: str,
     profile: RAGProfile,
     in_memory: bool,
-    top_k: int = 3,
-    recall_n: int = 50,
+    top_k: int | None = None,
+    recall_n: int | None = None,
     collection: str | None = None,
 ) -> dict:
+    retriever_cfg = get_rag_config().retriever
+    resolved_top_k = top_k if top_k is not None else retriever_cfg.top_k
+    resolved_recall_n = recall_n if recall_n is not None else retriever_cfg.recall_n
     coll = collection or collection_name(dataset, profile.profile_id)
     from eval.profiles import build_indexer_for_profile
 
@@ -38,7 +42,7 @@ async def search_dataset(
         in_memory=in_memory,
         store=indexer.store,
         embedder=indexer.embedder,
-        recall_n=recall_n,
+        recall_n=resolved_recall_n,
     )
 
     gold_path = dataset_dir(dataset) / "gold_rag.jsonl"
@@ -47,14 +51,14 @@ async def search_dataset(
     per_case: list[dict] = []
 
     for case in cases:
-        chunks = await retriever.aquery(case["query"], top_k=top_k)
-        score = recall_at_k(chunks, case, k=top_k)
+        chunks = await retriever.aquery(case["query"], top_k=resolved_top_k)
+        score = recall_at_k(chunks, case, k=resolved_top_k)
         scores.append(score)
         per_case.append(
             {
                 "query": case["query"],
                 "recall_at_k": score,
-                "top_preview": [c.content[:120] for c in chunks[:top_k]],
+                "top_preview": [c.content[:120] for c in chunks[:resolved_top_k]],
             }
         )
 
@@ -65,7 +69,7 @@ async def search_dataset(
         "dataset": dataset,
         "profile": profile.profile_id,
         "collection": coll,
-        "top_k": top_k,
+        "top_k": resolved_top_k,
         "cases": len(cases),
         "mean_recall_at_k": mean,
         "per_case": per_case,
@@ -77,8 +81,8 @@ def main() -> None:
     parser.add_argument("--dataset", default="smoke")
     parser.add_argument("--profile", required=True)
     parser.add_argument("--collection", default=None, help="Override Qdrant collection name")
-    parser.add_argument("--top-k", type=int, default=3)
-    parser.add_argument("--recall-n", type=int, default=50)
+    parser.add_argument("--top-k", type=int, default=None)
+    parser.add_argument("--recall-n", type=int, default=None)
     parser.add_argument("--in-memory", action="store_true")
     parser.add_argument("--json", action="store_true", help="Print JSON only")
     args = parser.parse_args()

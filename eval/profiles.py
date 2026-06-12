@@ -6,6 +6,7 @@ from typing import List, Optional
 
 from eval.paths import REPO_ROOT
 from rag.build import build_RAG_indexer, build_RAG_retriever
+from rag.config import ProfileConfig, get_rag_config
 from rag.core import RAGIndexer, RAGRetriever
 from rag.embedder.openai_embedder import OpenAIEmbedder
 from rag.store.qdrant_store import QdrantVectorStore
@@ -31,27 +32,35 @@ class RAGProfile:
     use_reranker: bool = False
 
     @classmethod
+    def from_config(cls, profile_id: str, cfg: ProfileConfig) -> "RAGProfile":
+        return cls(
+            profile_id=profile_id,
+            use_contextual=cfg.use_contextual,
+            use_small_to_big=cfg.use_small_to_big,
+            use_predict_questions=cfg.use_predict_questions,
+            use_hyde=cfg.use_hyde,
+            use_reranker=cfg.use_reranker,
+        )
+
+    @classmethod
     def get(cls, profile_id: str) -> "RAGProfile":
-        for profile in SMOKE_PROFILES:
+        for profile in smoke_profiles():
             if profile.profile_id == profile_id:
                 return profile
-        supported = ", ".join(p.profile_id for p in SMOKE_PROFILES)
+        supported = ", ".join(p.profile_id for p in smoke_profiles())
         raise ValueError(f"Unknown profile {profile_id!r}. Supported: {supported}")
 
 
-SMOKE_PROFILES: List[RAGProfile] = [
-    RAGProfile("baseline"),
-    RAGProfile("contextual", use_contextual=True),
-    RAGProfile("s2b", use_small_to_big=True),
-    RAGProfile("predict_q", use_predict_questions=True),
-    RAGProfile(
-        "full",
-        use_contextual=True,
-        use_small_to_big=True,
-        use_hyde=True,
-        use_reranker=True,
-    ),
-]
+def smoke_profiles() -> List[RAGProfile]:
+    """Eval profiles declared in ``config.yaml`` (order preserved)."""
+    return [
+        RAGProfile.from_config(profile_id, cfg)
+        for profile_id, cfg in get_rag_config().profiles.items()
+    ]
+
+
+# Backward-compatible alias for imports that expect a module-level list.
+SMOKE_PROFILES: List[RAGProfile] = smoke_profiles()
 
 
 def collection_name(dataset: str, profile_id: str) -> str:
@@ -102,8 +111,7 @@ def build_retriever_for_profile(
     in_memory: bool,
     store: Optional[QdrantVectorStore] = None,
     embedder: Optional[OpenAIEmbedder] = None,
-    recall_n: int = 50,
-    top_k: int = 3,
+    recall_n: int | None = None,
 ) -> RAGRetriever:
     if store is None:
         store = build_store(collection, in_memory=in_memory)

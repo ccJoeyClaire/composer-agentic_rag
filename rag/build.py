@@ -4,17 +4,19 @@ from typing import Annotated, Optional
 
 from pydantic import Field
 
+from .config import get_rag_config
 from .core import RAGIndexer, RAGRetriever
 from .embedder.openai_embedder import OpenAIEmbedder
 from .store.qdrant_store import QdrantVectorStore
 
-DEFAULT_CHUNK_TOKENS = 512
-DEFAULT_CHUNK_OVERLAP = 64
 PARENT_WINDOW_MULTIPLIER = 6
 
 
-def parent_window_tokens(chunk_tokens: int = DEFAULT_CHUNK_TOKENS) -> int:
-    return chunk_tokens * PARENT_WINDOW_MULTIPLIER
+def parent_window_tokens(chunk_tokens: int | None = None) -> int:
+    tokens = chunk_tokens
+    if tokens is None:
+        tokens = get_rag_config().chunker.chunk_tokens
+    return tokens * PARENT_WINDOW_MULTIPLIER
 
 
 def _make_store(
@@ -51,7 +53,7 @@ def build_RAG_indexer(
         Field(
             description=(
                 "是否启用 small-to-big"
-                f"（{DEFAULT_CHUNK_TOKENS} child chunk / "
+                f"（{get_rag_config().chunker.chunk_tokens} child chunk / "
                 f"{parent_window_tokens()} parent window）"
             )
         ),
@@ -59,13 +61,19 @@ def build_RAG_indexer(
     predict_question_max_concurrency: Optional[int] = None,
     store: Optional[QdrantVectorStore] = None,
     embedder: Optional[OpenAIEmbedder] = None,
-    chunk_tokens: int = DEFAULT_CHUNK_TOKENS,
-    overlap: int = DEFAULT_CHUNK_OVERLAP,
+    chunk_tokens: int | None = None,
+    overlap: int | None = None,
 ) -> RAGIndexer:
     """组装离线建库用的 :class:`RAGIndexer`（chunk → embed → store）。"""
     from .chunker.semantic_chunker import SemanticChunker
     from .document_augmentation.context_enricher import ContextualEnricher
     from .document_augmentation.predict_question import PredictQuestionEnricher
+
+    chunker_cfg = get_rag_config().chunker
+    resolved_chunk_tokens = (
+        chunk_tokens if chunk_tokens is not None else chunker_cfg.chunk_tokens
+    )
+    resolved_overlap = overlap if overlap is not None else chunker_cfg.overlap_tokens
 
     embedder = _make_embedder(embedder)
     store = _make_store(collection, in_memory=in_memory, store=store)
@@ -79,13 +87,18 @@ def build_RAG_indexer(
     )
 
     return RAGIndexer(
-        chunker=SemanticChunker(chunk_tokens=chunk_tokens, overlap_tokens=overlap),
+        chunker=SemanticChunker(
+            chunk_tokens=resolved_chunk_tokens,
+            overlap_tokens=resolved_overlap,
+            break_similarity=chunker_cfg.break_similarity,
+            min_chunk_tokens=chunker_cfg.min_chunk_tokens,
+        ),
         embedder=embedder,
         store=store,
         contextual_enricher=contextual_enricher,
         predict_question_enricher=predict_question_enricher,
         small_to_big_parent_tokens=(
-            parent_window_tokens(chunk_tokens) if use_small_to_big else None
+            parent_window_tokens(resolved_chunk_tokens) if use_small_to_big else None
         ),
     )
 
@@ -110,16 +123,17 @@ def build_RAG_retriever(
         Field(
             description=(
                 "是否启用 small-to-big"
-                f"（{DEFAULT_CHUNK_TOKENS} child / {parent_window_tokens()} parent）"
+                f"（{get_rag_config().chunker.chunk_tokens} child / "
+                f"{parent_window_tokens()} parent）"
             )
         ),
     ] = False,
     recall_n: Annotated[
-        int, Field(description="向量召回条数（rerank 前）", ge=1)
-    ] = 50,
+        int | None, Field(description="向量召回条数（rerank 前）", ge=1)
+    ] = None,
     store: Optional[QdrantVectorStore] = None,
     embedder: Optional[OpenAIEmbedder] = None,
-    chunk_tokens: int = DEFAULT_CHUNK_TOKENS,
+    chunk_tokens: int | None = None,
 ) -> RAGRetriever:
     """组装查询用的 :class:`RAGRetriever`（transform → retrieve → rerank）。"""
     from .document_augmentation.context_enricher import ContextualEnricher
@@ -127,6 +141,13 @@ def build_RAG_retriever(
     from .reranker.cross_encoder_reranker import CrossEncoderReranker
     from .retriever.small_to_big_retriever import SmallToBigRetriever
     from .retriever.vector_retriever import VectorRetriever
+
+    chunker_cfg = get_rag_config().chunker
+    retriever_cfg = get_rag_config().retriever
+    resolved_chunk_tokens = (
+        chunk_tokens if chunk_tokens is not None else chunker_cfg.chunk_tokens
+    )
+    resolved_recall_n = recall_n if recall_n is not None else retriever_cfg.recall_n
 
     embedder = _make_embedder(embedder)
     store = _make_store(collection, in_memory=in_memory, store=store)
@@ -136,7 +157,7 @@ def build_RAG_retriever(
         SmallToBigRetriever(
             inner,
             store=store,
-            parent_token_budget=parent_window_tokens(chunk_tokens),
+            parent_token_budget=parent_window_tokens(resolved_chunk_tokens),
         )
         if use_small_to_big
         else inner
@@ -147,5 +168,5 @@ def build_RAG_retriever(
         reranker=CrossEncoderReranker() if use_reranker else None,
         query_transformer=HyDETransformer() if use_hyde else None,
         contextual_enricher=ContextualEnricher() if use_contextual else None,
-        recall_n=recall_n,
+        recall_n=resolved_recall_n,
     )

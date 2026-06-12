@@ -27,9 +27,16 @@ def rag_tool_box():
 
 
 @pytest.fixture
-def bound_rag_stack(mock_embedder, in_memory_vector_store, reset_rag_bindings):
+def bound_rag_stack(
+    mock_embedder, mock_chunker_embedding_client, in_memory_vector_store, reset_rag_bindings
+):
     indexer = RAGIndexer(
-        chunker=SemanticChunker(chunk_tokens=256, overlap_tokens=0, min_chunk_tokens=1),
+        chunker=SemanticChunker(
+            chunk_tokens=256,
+            overlap_tokens=0,
+            min_chunk_tokens=1,
+            embedding_client=mock_chunker_embedding_client,
+        ),
         embedder=mock_embedder,
         store=in_memory_vector_store,
     )

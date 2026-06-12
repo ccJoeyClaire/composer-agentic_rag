@@ -16,6 +16,7 @@ from .base import (
     RagResult,
 )
 from .document_augmentation.parent_builder import assign_parent_chunks
+from .config import get_rag_config
 
 
 class RAGIndexer:
@@ -118,16 +119,18 @@ class RAGRetriever:
         reranker: Optional[BaseReranker] = None,
         query_transformer: Optional[BaseQueryTransformer] = None,
         contextual_enricher: Optional[BaseContextualEnricher] = None,
-        recall_n: int = 50,
+        recall_n: int | None = None,
     ):
         self.retriever = retriever
         self.reranker = reranker
         self.query_transformer = query_transformer
         self.contextual_enricher = contextual_enricher
-        self.recall_n = max(1, recall_n)
+        resolved = recall_n if recall_n is not None else get_rag_config().retriever.recall_n
+        self.recall_n = max(1, resolved)
 
-    async def aquery(self, query: str, top_k: int = 5) -> List[Chunk]:
-        ctx = RagContext(query=query, top_k=top_k)
+    async def aquery(self, query: str, top_k: int | None = None) -> List[Chunk]:
+        effective_top_k = top_k if top_k is not None else get_rag_config().retriever.top_k
+        ctx = RagContext(query=query, top_k=effective_top_k)
         return await self._run_query(ctx)
 
     async def _run_query(self, ctx: RagContext) -> List[Chunk]:
@@ -157,15 +160,17 @@ class RAGRetriever:
         ctx.chunks = chunks
         return chunks
 
-    async def aquery_result(self, query: str, top_k: int = 5) -> RagResult:
+    async def aquery_result(self, query: str, top_k: int | None = None) -> RagResult:
         chunks = await self.aquery(query, top_k=top_k)
         return RagResult(query=query, chunks=chunks)
 
-    async def aquery_stream(self, query: str, top_k: int = 5) -> AsyncIterator[Chunk]:
+    async def aquery_stream(
+        self, query: str, top_k: int | None = None
+    ) -> AsyncIterator[Chunk]:
         for chunk in await self.aquery(query, top_k=top_k):
             yield chunk
 
-    def as_tool(self, top_k: int = 5) -> Callable[[str], str]:
+    def as_tool(self, top_k: int | None = None) -> Callable[[str], str]:
         def rag_search(query: str) -> str:
             chunks = asyncio.run(self.aquery(query, top_k=top_k))
             return "\n\n---\n\n".join(c.content for c in chunks)

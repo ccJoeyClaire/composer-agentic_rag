@@ -9,9 +9,20 @@ from ..base import BaseChunker, Chunk
     
 
 class MarkdownChunker(BaseChunker):
-    def __init__(self, chunk_tokens:int=512, overlap_tokens=64):
-        self.chunk_tokens = chunk_tokens
-        self.overlap_tokens = overlap_tokens
+    def __init__(
+        self,
+        chunk_tokens: int | None = None,
+        overlap_tokens: int | None = None,
+    ) -> None:
+        from ..config import get_rag_config
+
+        cfg = get_rag_config().chunker
+        self.chunk_tokens = (
+            chunk_tokens if chunk_tokens is not None else cfg.chunk_tokens
+        )
+        self.overlap_tokens = (
+            overlap_tokens if overlap_tokens is not None else cfg.overlap_tokens
+        )
 
     # metadata 待定
     def run(self, text:str):
@@ -191,6 +202,6 @@ if __name__ == "__main__":
     print(json.dumps(split_text2, indent=4, ensure_ascii=False))
 
 
-    chunker = MarkdownChunker(chunk_tokens=512, overlap_tokens=64)
+    chunker = MarkdownChunker()
     chunks = chunker.run("# 标题\n\n内容")
     assert isinstance(chunks[0], Chunk)  # 通过
