@@ -6,7 +6,7 @@ from typing import Iterable
 
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 
-from agent.metadata_schema import DEFAULT_RAG_TOOL_NAME
+from agent.state import DEFAULT_RAG_TOOL_NAME
 
 RAG_CHUNK_SEPARATOR = "\n\n---\n\n"
 

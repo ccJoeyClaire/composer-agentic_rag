@@ -1,4 +1,0 @@
-{"case_id": "pipeline_graph", "pattern": "react", "check": "graph_nodes", "must_include": ["llm", "tools"], "must_exclude": ["self_rag_pre", "self_rag_post", "crag_eval", "detect_feedback"]}
-{"case_id": "self_rag_pre_retrieve", "pattern": "react_self_rag", "check": "self_rag_pre", "message": "What is vector search?", "expected_metadata": {"self_rag_need_retrieve": true}}
-{"case_id": "crag_decide_requery", "pattern": "react_crag", "check": "crag_decide", "expected_action": "requery", "labels": ["incorrect"]}
-{"case_id": "feedback_detect_correction", "pattern": "react_feedback", "check": "feedback_detect", "message": "不对，你答错了", "mock_detect": {"detected": true, "kind": "correction"}, "expected_route": "plan_feedback"}

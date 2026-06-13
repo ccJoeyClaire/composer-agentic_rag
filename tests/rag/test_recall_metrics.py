@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from eval.metrics.recall import load_gold_cases, recall_at_k
+from eval.rag.metrics.recall import load_gold_cases, recall_at_k
 from eval.paths import dataset_dir
 from rag.base import Chunk
 

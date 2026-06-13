@@ -7,10 +7,9 @@ from pydantic import Field
 
 from tools.MCPTool._client import call_mcp_tool, mcp_command_available
 from tools.MCPTool._config import bocha_config
-from tools.registry import mcp_tool
 
 
-@mcp_tool
+# @mcp_tool  # 暂时停用，改用 tools.MCPTool.tavily_tool.tavily_search
 async def bocha(
     query: Annotated[str, Field(description="搜索关键词")],
     freshness: Annotated[

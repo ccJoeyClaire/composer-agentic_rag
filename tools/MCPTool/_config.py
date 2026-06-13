@@ -48,3 +48,23 @@ def bocha_config() -> MCPServerConfig:
     if api_key:
         env["BOCHA_API_KEY"] = api_key
     return MCPServerConfig(key="bocha", command=command, args=args, env=env)
+
+
+TAVILY_API_KEY_PLACEHOLDER = "<your-api-key>"
+
+
+def tavily_config() -> MCPServerConfig:
+    """Stdio bridge to Tavily remote MCP via ``npx mcp-remote``."""
+    command, args = _command_from_env("TAVILY_MCP_COMMAND", "npx -y mcp-remote")
+    url_template = os.environ.get("TAVILY_MCP_URL", "").strip()
+    api_key = os.environ.get("TAVILY_API_KEY", "").strip()
+    if TAVILY_API_KEY_PLACEHOLDER in url_template:
+        remote_url = url_template.replace(TAVILY_API_KEY_PLACEHOLDER, api_key)
+    else:
+        remote_url = url_template
+
+    return MCPServerConfig(
+        key="tavily",
+        command=command,
+        args=[*args, remote_url],
+    )

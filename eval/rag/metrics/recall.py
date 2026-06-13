@@ -2,11 +2,19 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Iterable, NotRequired, TypedDict
 
 
-def load_gold_cases(path: Path) -> List[Dict[str, Any]]:
-    cases: List[Dict[str, Any]] = []
+class GoldRagCase(TypedDict):
+    query: str
+    expected_keywords: NotRequired[list[str]]
+    expected_source: NotRequired[str]
+    expected_heading_contains: NotRequired[str]
+    notes: NotRequired[str]
+
+
+def load_gold_cases(path: Path) -> list[GoldRagCase]:
+    cases: list[GoldRagCase] = []
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line:
@@ -15,7 +23,7 @@ def load_gold_cases(path: Path) -> List[Dict[str, Any]]:
     return cases
 
 
-def chunk_matches(case: Dict[str, Any], chunk_text: str, meta: dict) -> bool:
+def chunk_matches(case: GoldRagCase, chunk_text: str, meta: dict) -> bool:
     expected_source = (case.get("expected_source") or "").strip()
     if expected_source:
         source = (meta or {}).get("source") or ""
@@ -37,7 +45,7 @@ def chunk_matches(case: Dict[str, Any], chunk_text: str, meta: dict) -> bool:
     return False
 
 
-def recall_at_k(chunks: Iterable, case: Dict[str, Any], k: int) -> float:
+def recall_at_k(chunks: Iterable, case: GoldRagCase, k: int) -> float:
     selected = list(chunks)[:k]
     for chunk in selected:
         text = getattr(chunk, "content", str(chunk))
@@ -47,7 +55,7 @@ def recall_at_k(chunks: Iterable, case: Dict[str, Any], k: int) -> float:
     return 0.0
 
 
-def mean_recall_at_k(all_scores: List[float]) -> float:
+def mean_recall_at_k(all_scores: list[float]) -> float:
     if not all_scores:
         return 0.0
     return sum(all_scores) / len(all_scores)

@@ -1,4 +1,4 @@
-"""Load typed pipeline settings from ``config.yaml`` at the repo root."""
+"""Load typed pipeline settings from ``arg_config.yaml`` at the repo root."""
 
 from __future__ import annotations
 
@@ -10,9 +10,10 @@ from typing import Dict
 import yaml
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_CONFIG_PATH = _REPO_ROOT / "config.yaml"
+_CONFIG_PATH = _REPO_ROOT / "arg_config.yaml"
 
 _PROFILE_BOOL_FIELDS = (
+    "use_token_chunker",
     "use_contextual",
     "use_small_to_big",
     "use_predict_questions",
@@ -23,7 +24,7 @@ _PROFILE_BOOL_FIELDS = (
 
 @dataclass(frozen=True)
 class ChunkerConfig:
-    """Typed view of ``config.yaml`` → ``chunker``; values come only from YAML."""
+    """Typed view of ``arg_config.yaml`` → ``chunker``; values come only from YAML."""
 
     chunk_tokens: int
     overlap_tokens: int
@@ -33,7 +34,7 @@ class ChunkerConfig:
 
 @dataclass(frozen=True)
 class RetrieverConfig:
-    """Typed view of ``config.yaml`` → ``retriever``; values come only from YAML."""
+    """Typed view of ``arg_config.yaml`` → ``retriever``; values come only from YAML."""
 
     recall_n: int
     top_k: int
@@ -43,6 +44,7 @@ class RetrieverConfig:
 class ProfileConfig:
     """Typed view of one ``profiles.<id>`` entry."""
 
+    use_token_chunker: bool
     use_contextual: bool
     use_small_to_big: bool
     use_predict_questions: bool
@@ -60,17 +62,17 @@ class RagConfig:
 def _config_section(data: object, name: str) -> dict[str, object]:
     if not isinstance(data, dict):
         raise ValueError(
-            f"config.yaml: root must be a mapping, got {type(data).__name__}"
+            f"arg_config.yaml: root must be a mapping, got {type(data).__name__}"
         )
     section = data.get(name)
     if not isinstance(section, dict):
-        raise ValueError(f"config.yaml: missing or invalid section {name!r}")
+        raise ValueError(f"arg_config.yaml: missing or invalid section {name!r}")
     return section
 
 
 def _config_value(section: dict[str, object], section_name: str, key: str) -> object:
     if key not in section:
-        raise KeyError(f"config.yaml: {section_name}.{key} is required")
+        raise KeyError(f"arg_config.yaml: {section_name}.{key} is required")
     return section[key]
 
 
@@ -84,7 +86,7 @@ def _parse_profile(raw: object) -> ProfileConfig:
 
 @lru_cache(maxsize=1)
 def get_rag_config() -> RagConfig:
-    """Load pipeline settings from ``config.yaml`` (single source of truth)."""
+    """Load pipeline settings from ``arg_config.yaml`` (single source of truth)."""
     with _CONFIG_PATH.open(encoding="utf-8") as handle:
         data = yaml.safe_load(handle)
 

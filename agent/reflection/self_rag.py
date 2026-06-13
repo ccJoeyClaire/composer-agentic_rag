@@ -13,46 +13,16 @@ from typing import Awaitable, Callable
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
-from agent.metadata_schema import (
+from agent.state import (
     DEFAULT_MAX_RAG_ATTEMPTS,
+    AgentMetadata,
+    AgentState,
     merge_metadata,
 )
-from agent.state import AgentState
 from llm.client import LLMClient
 
 ClassifyRetrieveFn = Callable[[str], Awaitable[bool]]
 CheckGroundedFn = Callable[[str, str, str], Awaitable[bool]]
-
-RETRIEVE_HINT_KEYWORDS = (
-    "what",
-    "who",
-    "when",
-    "where",
-    "why",
-    "how",
-    "explain",
-    "define",
-    "describe",
-    "多少",
-    "什么",
-    "如何",
-    "为什么",
-    "哪",
-    "介绍",
-    "解释",
-    "是什么",
-)
-CHITCHAT_PATTERNS = (
-    "hello",
-    "hi",
-    "hey",
-    "thanks",
-    "thank you",
-    "你好",
-    "谢谢",
-    "再见",
-    "bye",
-)
 
 SELF_RAG_CLASSIFY_PROMPT = """Decide if answering the user requires searching a knowledge base.
 
@@ -76,7 +46,6 @@ Assistant answer:
 Return JSON only: {{"grounded": true|false}}
 """
 
-
 @dataclass
 class SelfRagConfig:
     llm: LLMClient | None = None
@@ -97,31 +66,6 @@ def last_ai_answer(messages: list[BaseMessage]) -> AIMessage | None:
         if isinstance(message, AIMessage) and not message.tool_calls:
             return message
     return None
-
-
-def rule_based_need_retrieve(text: str) -> bool:
-    stripped = text.strip()
-    if len(stripped) < 3:
-        return False
-
-    lowered = stripped.lower()
-    if (
-        any(pattern in lowered for pattern in CHITCHAT_PATTERNS)
-        and "?" not in stripped
-        and "？" not in stripped
-    ):
-        return False
-
-    if "?" in stripped or "？" in stripped:
-        return True
-
-    if any(keyword in lowered for keyword in RETRIEVE_HINT_KEYWORDS):
-        return True
-
-    if re.search(r"\b(w|h)\w+", lowered):
-        return True
-
-    return False
 
 
 async def default_classify_need_retrieve(llm: LLMClient, text: str) -> bool:
@@ -240,7 +184,7 @@ async def self_rag_post_node(
     else:
         grounded = _heuristic_grounded(str(context), answer)
 
-    patch: dict = {"self_rag_grounded": grounded}
+    patch: AgentMetadata = {"self_rag_grounded": grounded}
     if (
         not grounded
         and meta.get("self_rag_retry_allowed", True)
@@ -263,3 +207,73 @@ def _heuristic_grounded(context: str, answer: str) -> bool:
         return True
     overlap = sum(1 for token in answer_tokens if token in context_lower)
     return overlap >= max(1, len(answer_tokens) // 4)
+
+
+
+RETRIEVE_HINT_KEYWORDS = (
+    "what",
+    "who",
+    "when",
+    "where",
+    "why",
+    "how",
+    "explain",
+    "define",
+    "describe",
+    "多少",
+    "什么",
+    "如何",
+    "为什么",
+    "哪",
+    "介绍",
+    "解释",
+    "是什么",
+)
+CHITCHAT_PATTERNS = (
+    "hello",
+    "hi",
+    "hey",
+    "thanks",
+    "thank you",
+    "你好",
+    "谢谢",
+    "再见",
+    "bye",
+)
+
+def rule_based_need_retrieve(text: str) -> bool:
+    """Heuristic fallback when LLM classification is unavailable.
+
+    Production graphs use :func:`default_classify_need_retrieve`; this runs only
+    when ``llm`` and ``classify_fn`` are both absent (e.g. unit tests), or when
+    the LLM returns JSON without a ``need_retrieve`` field.
+
+    Args:
+        text: Raw user message to classify.
+
+    Returns:
+        ``True`` if the message looks like a knowledge-base question;
+        ``False`` for chitchat or too-short input.
+    """
+    stripped = text.strip()
+    if len(stripped) < 3:
+        return False
+
+    lowered = stripped.lower()
+    if (
+        any(pattern in lowered for pattern in CHITCHAT_PATTERNS)
+        and "?" not in stripped
+        and "？" not in stripped
+    ):
+        return False
+
+    if "?" in stripped or "？" in stripped:
+        return True
+
+    if any(keyword in lowered for keyword in RETRIEVE_HINT_KEYWORDS):
+        return True
+
+    if re.search(r"\b(w|h)\w+", lowered):
+        return True
+
+    return False

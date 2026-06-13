@@ -66,7 +66,7 @@ pytest -c tests/pytest.ini tests/agent/
 pytest -c tests/pytest.ini -m "not slow and not requires_api"
 
 # 检索/Agent 能力评测（独立脚本，不进 pytest）
-# python -m eval.run_smoke --dataset smoke
+# python -m eval.runners.run_rag
 ```
 
 ---
@@ -114,9 +114,11 @@ pytest -c tests/pytest.ini -m "not slow and not requires_api"
 
 | 位置 | 说明 |
 |------|------|
-| `eval/datasets/smoke/` | smoke manifest + gold |
-| `eval/metrics/recall.py` | Recall@k 启发式 |
-| `tests/rag/test_recall_metrics.py` | 仅测 recall 算法，非 eval 跑分 |
+| `eval/rag/` | Index / Search + Recall |
+| `eval/agent/` | CRAG context vs baseline |
+| `eval/runners/` | smoke 一键编排 |
+| `eval/datasets/smoke/` | manifest + gold 数据 |
+| `tests/eval/test_agent_gold.py` | Agent 行为 gold（原 run_agent） |
 
 ---
 
@@ -156,7 +158,7 @@ M1 **不包含** GitHub Actions 配置文件；可按上式自行添加。
 
 > 逐日任务与交付标准见 [WEEKLY_EVAL_PLAN.md](./WEEKLY_EVAL_PLAN.md)；结果记入 [eval_results.md](./eval_results.md)。
 
-- [ ] `python -m eval.run_smoke --dataset smoke` 全 profile 跑通
+- [ ] `python -m eval.runners.run_rag` 全 profile 跑通
 - [ ] baseline vs `+contextual` vs `+s2b` vs `+rerank` 对比表写入 eval_results.md
 - [ ] BEIR scifact 子集 Recall@5 / nDCG@10
 - [ ] Agent eval：`gold_agent.jsonl` + mock/API 端到端断言

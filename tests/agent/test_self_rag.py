@@ -13,8 +13,7 @@ from agent.graph import (
     if_after_llm,
     route_after_self_rag_post,
 )
-from agent.metadata_schema import DEFAULT_RAG_TOOL_NAME
-from agent.state import AgentState
+from agent.state import DEFAULT_RAG_TOOL_NAME, AgentState
 from agent.reflection.self_rag import (
     SelfRagConfig,
     rule_based_need_retrieve,

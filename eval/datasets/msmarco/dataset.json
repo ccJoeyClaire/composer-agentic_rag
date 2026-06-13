@@ -1,0 +1,8 @@
+{
+  "dataset_id": "msmarco",
+  "adapter": "beir_corpus",
+  "corpus": "msmarco/corpus.jsonl",
+  "queries": "msmarco/queries.jsonl",
+  "qrels": "msmarco/qrels/dev.tsv",
+  "subset_n": 500
+}

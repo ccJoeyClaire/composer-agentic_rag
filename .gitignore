@@ -55,6 +55,11 @@ coverage.xml
 qdrant_data/
 eval/.cache/
 
+# --- Eval datasets (large / downloaded) ---
+*.jsonl
+*.zip
+*.tsv
+
 # --- ML model caches (sentence-transformers / HuggingFace) ---
 .cache/
 models/

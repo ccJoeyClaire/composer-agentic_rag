@@ -19,7 +19,7 @@
 
 | Date | Pattern | Mock pass | API pass (n/N) | Notes |
 |------|---------|-----------|----------------|-------|
-| 2026-06-12 | react + 3 agentic | 4/4 | —/— | `python -m eval.run_agent --dataset smoke` |
+| 2026-06-12 | react + 3 agentic | 4/4 | —/— | `pytest tests/eval/test_agent_gold.py` |
 
 ## 失败 Case 速记
 
@@ -31,7 +31,7 @@
 
 ## Smoke (smoke) — 2026-06-12 — Docker
 
-> `python -m eval.run_smoke --dataset smoke --recreate`（无 `--in-memory`）
+> `python -m eval.runners.run_rag --recreate`（无 `--in-memory`）
 
 | Profile | Recall@3 | Chunks | Index OK |
 |---------|----------|--------|----------|
@@ -43,7 +43,7 @@
 
 ## Smoke (smoke) — 2026-06-12 — 本地缓存
 
-> `python -m eval.run_smoke --dataset smoke --in-memory --recreate`
+> `python -m eval.runners.run_rag --in-memory --recreate`
 
 | Profile | Recall@3 | Chunks | Index OK |
 |---------|----------|--------|----------|
@@ -52,3 +52,14 @@
 | s2b | 1.00 | 41 | yes |
 | predict_q | 1.00 | 41 | yes |
 | full | 1.00 | 41 | yes |
+
+## Agent Context vs Baseline — 2026-06-14
+
+profile=baseline collection=eval_smoke_baseline
+
+| case_id | pattern | baseline | agent | delta | raw@1 |
+|---------|---------|----------|-------|-------|-------|
+| sanity_direct_retrieve | react | 1.00 | 1.00 | +0.00 | — |
+| crag_trim_noise_gold | react_crag | 1.00 | 1.00 | +0.00 | 0.00 |
+
+**mean** baseline=1.00 agent=1.00 delta=+0.00

@@ -7,7 +7,7 @@
 | 层级 | 工具 | 回答的问题 |
 |------|------|------------|
 | Unit / Integration | `pytest -c tests/pytest.ini` | 有没有写坏？ |
-| **Eval** | `python -m eval.run_smoke` 等 | 配置好不好？ |
+| **Eval** | `python -m eval.runners.run_rag` 等 | 配置好不好？ |
 | 人工 | `get_start/rag_demo.py` | 肉眼对比 |
 
 Eval **不进 CI**（需 API key、有费用、可能 flaky）。
@@ -30,11 +30,11 @@ Collection 命名：`eval_{dataset}_{profile_id}`。
 # 日常改代码（无 API）
 pytest -c tests/pytest.ini -m "not slow and not requires_api"
 
-# Smoke RAG（需 embedding API + Qdrant）
-python -m eval.run_smoke --dataset smoke --recreate
+# RAG smoke（需 embedding API + Qdrant）
+python -m eval.runners.run_rag --recreate
 
-# 仅 Agent mock
-python -m eval.run_agent --dataset smoke
+# Agent smoke（行为检查，已迁到 pytest）
+pytest tests/eval/test_agent_gold.py -v
 ```
 
 ## Gold 格式
@@ -50,13 +50,13 @@ python -m eval.run_agent --dataset smoke
 }
 ```
 
-**gold_agent.jsonl：** 见 `eval/datasets/smoke/gold_agent.jsonl`，字段 `check` 决定断言类型。
+**gold_agent.jsonl：** 见 `eval/datasets/smoke/gold_agent.jsonl`（pytest：`tests/eval/test_agent_gold.py`），字段 `check` 决定断言类型。
 
 ## 指标
 
 M1 使用启发式 **Recall@k**：top-k chunk 中是否命中至少一半 `expected_keywords`（或 heading 子串）。
 
-实现：[eval/metrics/recall.py](../eval/metrics/recall.py)
+实现：[eval/rag/metrics/recall.py](../eval/rag/metrics/recall.py)
 
 ## 配套
 

@@ -6,9 +6,8 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from agent.graph import AgentConfig, build_ReAct_agent, route_after_crag
-from agent.metadata_schema import DEFAULT_RAG_TOOL_NAME
 from agent.reflection.parsers import extract_rag_tool_results, split_rag_chunks
-from agent.state import AgentState
+from agent.state import DEFAULT_RAG_TOOL_NAME, AgentState
 from agent.subgraph.CRAG import (
     CragConfig,
     build_crag_node,

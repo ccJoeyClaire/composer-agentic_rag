@@ -1,1 +1,0 @@
-{"query": "在智能体优先的团队里，人类工程师的主要工作是什么？", "expected_keywords": ["工程师", "智能体"], "expected_source": "codex.md", "notes": "smoke：单条 gold"}

@@ -4,6 +4,7 @@ from typing import Annotated, Optional
 
 from pydantic import Field
 
+from .base import BaseChunker
 from .config import get_rag_config
 from .core import RAGIndexer, RAGRetriever
 from .embedder.openai_embedder import OpenAIEmbedder
@@ -36,11 +37,39 @@ def _make_embedder(embedder: Optional[OpenAIEmbedder] = None) -> OpenAIEmbedder:
     return embedder if embedder is not None else OpenAIEmbedder()
 
 
+def _make_chunker(
+    *,
+    use_token_chunker: bool,
+    chunk_tokens: int,
+    overlap_tokens: int,
+) -> BaseChunker:
+    if use_token_chunker:
+        from .chunker.token_chunker import TokenChunker
+
+        return TokenChunker(
+            chunk_tokens=chunk_tokens,
+            overlap_tokens=overlap_tokens,
+        )
+
+    from .chunker.semantic_chunker import SemanticChunker
+
+    chunker_cfg = get_rag_config().chunker
+    return SemanticChunker(
+        chunk_tokens=chunk_tokens,
+        overlap_tokens=overlap_tokens,
+        break_similarity=chunker_cfg.break_similarity,
+        min_chunk_tokens=chunker_cfg.min_chunk_tokens,
+    )
+
+
 def build_RAG_indexer(
     collection: Annotated[str, Field(description="Qdrant 集合名")],
     *,
     in_memory: Annotated[
         bool, Field(description="True 时使用 Qdrant :memory:，无需 Docker")
+    ] = False,
+    use_token_chunker: Annotated[
+        bool, Field(description="是否用 TokenChunker 硬切（对照组；默认 SemanticChunker）")
     ] = False,
     use_contextual: Annotated[
         bool, Field(description="是否启用 ContextualEnricher（索引 header + embed 增强）")
@@ -65,7 +94,6 @@ def build_RAG_indexer(
     overlap: int | None = None,
 ) -> RAGIndexer:
     """组装离线建库用的 :class:`RAGIndexer`（chunk → embed → store）。"""
-    from .chunker.semantic_chunker import SemanticChunker
     from .document_augmentation.context_enricher import ContextualEnricher
     from .document_augmentation.predict_question import PredictQuestionEnricher
 
@@ -87,11 +115,10 @@ def build_RAG_indexer(
     )
 
     return RAGIndexer(
-        chunker=SemanticChunker(
+        chunker=_make_chunker(
+            use_token_chunker=use_token_chunker,
             chunk_tokens=resolved_chunk_tokens,
             overlap_tokens=resolved_overlap,
-            break_similarity=chunker_cfg.break_similarity,
-            min_chunk_tokens=chunker_cfg.min_chunk_tokens,
         ),
         embedder=embedder,
         store=store,

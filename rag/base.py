@@ -58,6 +58,34 @@ class Chunk:
     score: float = 0.0
 
 
+# ---------------------------------------------------------------------------
+# RagContext.metadata keys — always access via these constants, never literals.
+# ---------------------------------------------------------------------------
+TRACE_WORKING_QUERY_KEY = "working_query"
+TRACE_HYDE_DOCUMENT_KEY = "hyde_document"
+TRACE_RETRIEVED_KEY = "trace_retrieved"
+TRACE_RERANKED_KEY = "trace_reranked"
+
+
+class RagTraceMeta(TypedDict, total=False):
+    """Keys stored in ``RagContext.metadata`` during a retrieval pipeline run.
+
+    Written stage-by-stage by ``RAGRetriever._run_query``; all fields are
+    optional because runs without a query-transformer or reranker still
+    produce a valid ``RagTraceMeta``.
+    """
+
+    # Query-transform stage
+    working_query: str   # effective query sent to the vector store
+    hyde_document: str   # HyDE-generated hypothetical document, if any
+
+    # Vector-store retrieval stage (fetch_k results, before rerank/truncation)
+    trace_retrieved: List[Chunk]
+
+    # Rerank stage (full reranked list, before top_k truncation)
+    trace_reranked: List[Chunk]
+
+
 @dataclass
 class RagContext:
     """Mutable state passed through orchestration stages."""
@@ -67,7 +95,7 @@ class RagContext:
     source: str = ""
     working_query: Optional[str] = None
     chunks: List[Chunk] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: RagTraceMeta = field(default_factory=RagTraceMeta)
 
     @property
     def effective_query(self) -> str:

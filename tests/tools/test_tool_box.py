@@ -24,7 +24,7 @@ def test_resolve_decorated_tool(tool_box):
 def test_autodiscover_registers_decorated_tools(tool_box):
     names = {s["function"]["name"] for s in tool_box.list_tools()}
     assert "integrate_function" in names
-    assert "bocha" in names
+    assert "tavily_search" in names
 
 
 @pytest.mark.asyncio

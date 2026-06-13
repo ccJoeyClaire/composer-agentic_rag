@@ -25,6 +25,7 @@ def llm_concurrency() -> int:
 @dataclass(frozen=True)
 class RAGProfile:
     profile_id: str
+    use_token_chunker: bool = False
     use_contextual: bool = False
     use_small_to_big: bool = False
     use_predict_questions: bool = False
@@ -35,6 +36,7 @@ class RAGProfile:
     def from_config(cls, profile_id: str, cfg: ProfileConfig) -> "RAGProfile":
         return cls(
             profile_id=profile_id,
+            use_token_chunker=cfg.use_token_chunker,
             use_contextual=cfg.use_contextual,
             use_small_to_big=cfg.use_small_to_big,
             use_predict_questions=cfg.use_predict_questions,
@@ -52,7 +54,7 @@ class RAGProfile:
 
 
 def smoke_profiles() -> List[RAGProfile]:
-    """Eval profiles declared in ``config.yaml`` (order preserved)."""
+    """Eval profiles declared in ``arg_config.yaml`` (order preserved)."""
     return [
         RAGProfile.from_config(profile_id, cfg)
         for profile_id, cfg in get_rag_config().profiles.items()
@@ -95,6 +97,7 @@ def build_indexer_for_profile(
     return build_RAG_indexer(
         collection,
         in_memory=False,
+        use_token_chunker=profile.use_token_chunker,
         use_contextual=profile.use_contextual,
         use_predict_questions=profile.use_predict_questions,
         use_small_to_big=profile.use_small_to_big,

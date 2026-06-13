@@ -17,13 +17,14 @@ from typing import Awaitable, Callable, List, Optional, Tuple, TypedDict
 from langchain_core.messages import RemoveMessage, ToolMessage
 from langgraph.graph import END, StateGraph
 
-from agent.metadata_schema import (
+from agent.reflection.parsers import extract_rag_tool_results, split_rag_chunks
+from agent.state import (
     DEFAULT_MAX_RAG_ATTEMPTS,
     DEFAULT_RAG_TOOL_NAME,
+    DEFAULT_WEB_TOOL_NAME,
+    AgentState,
     merge_metadata,
 )
-from agent.reflection.parsers import extract_rag_tool_results, split_rag_chunks
-from agent.state import AgentState
 from llm.client import LLMClient
 
 from rag.config import get_rag_config
@@ -34,7 +35,7 @@ WebFn = Callable[[str], Awaitable[str]]
 
 
 def default_escalation() -> Tuple[dict, ...]:
-    """Query-time escalation ladder from ``config.yaml`` retriever.recall_n."""
+    """Query-time escalation ladder from ``arg_config.yaml`` retriever.recall_n."""
     recall_n = get_rag_config().retriever.recall_n
     return (
         {"use_reranker": True, "recall_n": recall_n},
@@ -81,7 +82,7 @@ class CragConfig:
     tool_box: object | None = None
     retrieve_fn: RetrieveFn | None = None
     web_enabled: bool = False
-    web_tool_name: str = "bocha"
+    web_tool_name: str = DEFAULT_WEB_TOOL_NAME
     web_fn: WebFn | None = None
     escalation: Tuple[dict, ...] = field(default_factory=lambda: DEFAULT_ESCALATION)
 

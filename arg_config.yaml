@@ -12,9 +12,12 @@ retriever:
 
 profiles:
   baseline: {}
+  token: { use_token_chunker: true }
   contextual: { use_contextual: true }
   s2b: { use_small_to_big: true }
   predict_q: { use_predict_questions: true }
+  hyde: { use_hyde: true }
+  reranker: { use_reranker: true }
   full:
     use_contextual: true
     use_small_to_big: true

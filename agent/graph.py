@@ -7,7 +7,7 @@ from typing import Literal
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from agent.metadata_schema import DEFAULT_MAX_RAG_ATTEMPTS, get_metadata
+from agent.state import DEFAULT_MAX_RAG_ATTEMPTS, get_metadata
 from agent.nodes import llm_node, tool_node
 from agent.reflection.feedback import (
     FeedbackConfig,

@@ -4,6 +4,10 @@ import asyncio
 from typing import AsyncIterator, Callable, List, Optional
 
 from .base import (
+    TRACE_HYDE_DOCUMENT_KEY,
+    TRACE_RERANKED_KEY,
+    TRACE_RETRIEVED_KEY,
+    TRACE_WORKING_QUERY_KEY,
     BaseChunker,
     BaseContextualEnricher,
     BaseEmbedder,
@@ -143,18 +147,23 @@ class RAGRetriever:
                 q = transformed[0] if transformed else q
             else:
                 q = transformed
+            ctx.metadata[TRACE_WORKING_QUERY_KEY] = q
             hyde_doc = getattr(self.query_transformer, "last_document", None)
             if hyde_doc:
-                ctx.metadata["hyde_document"] = hyde_doc
+                ctx.metadata[TRACE_HYDE_DOCUMENT_KEY] = hyde_doc
         ctx.working_query = q
 
         chunks = await self.retriever.aretrieve(ctx.effective_query, top_k=fetch_k)
+        # Snapshot raw retrieval order before any enrichment or reranking.
+        ctx.metadata[TRACE_RETRIEVED_KEY] = list(chunks)
 
         if self.contextual_enricher:
             chunks = await self.contextual_enricher.aenrich_chunks(chunks)
 
         if self.reranker:
             chunks = await self.reranker.arerank(ctx.query, chunks)
+            # Snapshot after rerank but before top_k truncation.
+            ctx.metadata[TRACE_RERANKED_KEY] = list(chunks)
 
         chunks = chunks[: ctx.top_k]
         ctx.chunks = chunks
@@ -163,6 +172,32 @@ class RAGRetriever:
     async def aquery_result(self, query: str, top_k: int | None = None) -> RagResult:
         chunks = await self.aquery(query, top_k=top_k)
         return RagResult(query=query, chunks=chunks)
+
+    async def aquery_trace(self, query: str, top_k: int | None = None) -> RagResult:
+        """Run the full pipeline and attach per-stage snapshots to the result.
+
+        The ``RagResult.metadata`` will contain the ``TRACE_*`` keys defined in
+        ``RagTraceMeta``; use them in eval to compare pre/post-rerank ordering
+        and diagnose where in the pipeline a relevant chunk is lost.
+
+        Production callers should use ``aquery`` or ``aquery_result`` instead —
+        this path allocates extra list snapshots that are not needed at serving
+        time.
+
+        Args:
+            query: The user query string.
+            top_k: Number of chunks to return (defaults to config value).
+
+        Returns:
+            ``RagResult`` with ``chunks`` set to the final top_k results and
+            ``metadata`` populated with ``TRACE_RETRIEVED_KEY`` /
+            ``TRACE_RERANKED_KEY`` (and optionally ``TRACE_WORKING_QUERY_KEY`` /
+            ``TRACE_HYDE_DOCUMENT_KEY``) list snapshots.
+        """
+        effective_top_k = top_k if top_k is not None else get_rag_config().retriever.top_k
+        ctx = RagContext(query=query, top_k=effective_top_k)
+        await self._run_query(ctx)
+        return RagResult(query=query, chunks=ctx.chunks, metadata=dict(ctx.metadata))
 
     async def aquery_stream(
         self, query: str, top_k: int | None = None

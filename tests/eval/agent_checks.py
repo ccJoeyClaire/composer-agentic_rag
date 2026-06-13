@@ -1,10 +1,12 @@
+"""Agent graph behavior checks (pytest-only; not quality eval)."""
+
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List
-from unittest.mock import AsyncMock, MagicMock
+from typing import Any
 
 from langchain_core.messages import HumanMessage
+from unittest.mock import AsyncMock, MagicMock
 
 from agent.graph import AgentConfig, build_agent
 from agent.reflection.feedback import detect_feedback_node, route_after_detect
@@ -19,7 +21,7 @@ def _mock_llm_response(payload: dict) -> MagicMock:
     return response
 
 
-async def run_agent_case(case: Dict[str, Any]) -> Dict[str, Any]:
+async def run_agent_case(case: dict[str, Any]) -> dict[str, Any]:
     check = case["check"]
     if check == "graph_nodes":
         return _check_graph_nodes(case)
@@ -32,7 +34,7 @@ async def run_agent_case(case: Dict[str, Any]) -> Dict[str, Any]:
     raise ValueError(f"Unknown agent check {check!r}")
 
 
-def _check_graph_nodes(case: Dict[str, Any]) -> Dict[str, Any]:
+def _check_graph_nodes(case: dict[str, Any]) -> dict[str, Any]:
     class _FakeLLM:
         pass
 
@@ -52,7 +54,7 @@ def _check_graph_nodes(case: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-async def _check_self_rag_pre(case: Dict[str, Any]) -> Dict[str, Any]:
+async def _check_self_rag_pre(case: dict[str, Any]) -> dict[str, Any]:
     state: AgentState = {
         "messages": [HumanMessage(content=case["message"])],
         "metadata": {},
@@ -77,7 +79,7 @@ async def _check_self_rag_pre(case: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _check_crag_decide(case: Dict[str, Any]) -> Dict[str, Any]:
+def _check_crag_decide(case: dict[str, Any]) -> dict[str, Any]:
     labels = [{"index": i, "label": label} for i, label in enumerate(case["labels"])]
     verdict = compute_verdict(labels)
     action = decide_action(
@@ -97,7 +99,7 @@ def _check_crag_decide(case: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-async def _check_feedback_detect(case: Dict[str, Any]) -> Dict[str, Any]:
+async def _check_feedback_detect(case: dict[str, Any]) -> dict[str, Any]:
     mock_llm = MagicMock()
     mock_llm.arequest_llm = AsyncMock(
         return_value=_mock_llm_response(case["mock_detect"])
@@ -118,10 +120,3 @@ async def _check_feedback_detect(case: Dict[str, Any]) -> Dict[str, Any]:
         "expected_route": expected_route,
         "feedback_detected": detected,
     }
-
-
-async def run_all_cases(cases: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    results: List[Dict[str, Any]] = []
-    for case in cases:
-        results.append(await run_agent_case(case))
-    return results
