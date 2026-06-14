@@ -1,0 +1,65 @@
+{
+  "dataset": "trec-covid",
+  "timestamp_utc": "2026-06-13T21:09:54.325362+00:00",
+  "config": {
+    "profiles": [
+      "token"
+    ],
+    "k_values": [
+      3,
+      10
+    ],
+    "query_limit": 2,
+    "rel_threshold": 2,
+    "max_distractors_per_query": 0,
+    "fetch_chunks": 40,
+    "in_memory": true
+  },
+  "results": [
+    {
+      "profile_id": "token",
+      "collection": "pooleval_trec-covid_token",
+      "num_docs_indexed": 547,
+      "num_queries": 2,
+      "mean_metrics": {
+        "recall@3": 0.011090872293058086,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@10": 0.03696957431019362,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr@10": 1.0
+      },
+      "per_query": [
+        {
+          "query_id": "1",
+          "num_gold": 305,
+          "num_ranked_docs": 39,
+          "metrics": {
+            "recall@3": 0.009836065573770493,
+            "ndcg@3": 1.0,
+            "hit@3": 1.0,
+            "recall@10": 0.03278688524590164,
+            "ndcg@10": 1.0,
+            "hit@10": 1.0,
+            "mrr@10": 1.0
+          }
+        },
+        {
+          "query_id": "2",
+          "num_gold": 243,
+          "num_ranked_docs": 38,
+          "metrics": {
+            "recall@3": 0.012345679012345678,
+            "ndcg@3": 1.0,
+            "hit@3": 1.0,
+            "recall@10": 0.0411522633744856,
+            "ndcg@10": 1.0,
+            "hit@10": 1.0,
+            "mrr@10": 1.0
+          }
+        }
+      ]
+    }
+  ]
+}
