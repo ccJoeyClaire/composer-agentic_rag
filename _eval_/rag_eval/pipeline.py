@@ -23,7 +23,7 @@ from _eval_.data_preparing.beir import (
     EvalQuery,
     Qrels,
     QueryId,
-    SOURCE_META_KEY,
+    resolve_chunk_doc_id,
 )
 from _eval_.data_preparing.prepare import PreparedEvalData
 from _eval_.data_preparing.pooling import gold_docs
@@ -52,6 +52,11 @@ async def drop_collection(store) -> None:
         await store.client.delete_collection(store.collection)
 
 
+async def collection_exists(store) -> bool:
+    """Return whether the store's backing collection is already present."""
+    return await store.client.collection_exists(store.collection)
+
+
 async def index_doc_list(
     indexer: RAGIndexer,
     docs: list[CorpusDoc],
@@ -61,11 +66,12 @@ async def index_doc_list(
     """Index a list of docs with bounded concurrency; returns docs indexed."""
     semaphore = asyncio.Semaphore(concurrency)
 
-    async def _index_one(text: str, source: str) -> None:
+    async def _index_one(doc: CorpusDoc) -> None:
         async with semaphore:
-            await indexer.aindex(text, source=source)
+            source = doc.title or doc.doc_id
+            await indexer.aindex(doc.text, source=source, doc_id=doc.doc_id)
 
-    await asyncio.gather(*(_index_one(doc.text, doc.doc_id) for doc in docs))
+    await asyncio.gather(*(_index_one(doc) for doc in docs))
     return len(docs)
 
 
@@ -102,7 +108,7 @@ def ranked_doc_ids(chunks: list[Chunk]) -> list[DocId]:
     seen: set[DocId] = set()
     ranked: list[DocId] = []
     for chunk in chunks:
-        doc_id = (chunk.metadata or {}).get(SOURCE_META_KEY)
+        doc_id = resolve_chunk_doc_id(chunk.metadata)
         if not doc_id or doc_id in seen:
             continue
         seen.add(doc_id)
@@ -179,9 +185,12 @@ async def eval_pipeline(
     if cfg.recreate:
         await drop_collection(indexer.store)
 
-    num_docs = await index_doc_list(
-        indexer, data.pool, concurrency=cfg.index_concurrency
-    )
+    if cfg.recreate or not await collection_exists(indexer.store):
+        num_docs = await index_doc_list(
+            indexer, data.pool, concurrency=cfg.index_concurrency
+        )
+    else:
+        num_docs = len(data.pool)
     per_query = await score_queries(
         retriever, data.queries, data.qrels, data.query_ids, cfg
     )

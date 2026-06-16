@@ -8,6 +8,7 @@ Edit that file, then run::
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import dataclasses
 import json
@@ -59,6 +60,7 @@ def _write_results(cfg: RunConfig, results: list[ProfileResult]) -> str:
             "max_distractors_per_query": cfg.pool_spec.max_distractors_per_query,
             "predict_question_max_concurrency": cfg.predict_question_max_concurrency,
             "chunk_fetch_multiplier": cfg.chunk_fetch_multiplier,
+            "recreate": cfg.recreate,
         },
         "results": [dataclasses.asdict(res) for res in results],
     }
@@ -75,8 +77,13 @@ async def run_eval(cfg: RunConfig) -> list[ProfileResult]:
 
     results: list[ProfileResult] = []
     for profile_id in cfg.profiles:
+        index_action = (
+            f"indexing {len(data.pool)} docs"
+            if cfg.recreate
+            else "skipping re-index when collection exists"
+        )
         print(
-            f"[{profile_id}] indexing {len(data.pool)} docs + "
+            f"[{profile_id}] {index_action} + "
             f"scoring {len(data.query_ids)} queries ..."
         )
         result = await eval_pipeline(profile_id, data, cfg)
@@ -85,7 +92,20 @@ async def run_eval(cfg: RunConfig) -> list[ProfileResult]:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Pooled BEIR RAG eval (index + retrieval metrics)."
+    )
+    parser.add_argument(
+        "--no-recreate",
+        action="store_true",
+        help="Reuse existing Qdrant collection; skip re-indexing when it exists",
+    )
+    args = parser.parse_args()
+
     cfg = load_rag_eval_config()
+    if args.no_recreate:
+        cfg = dataclasses.replace(cfg, recreate=False)
+
     results = asyncio.run(run_eval(cfg))
 
     print("\n" + _format_table(results))

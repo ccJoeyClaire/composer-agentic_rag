@@ -2,9 +2,10 @@ dataset: trec-covid
 profiles:
   - baseline
 
-query_limit: 5
-recreate: true
-index_concurrency: 8
+query_limit: 50
+# true: drop + re-index each run. false: reuse collection when it already exists.
+recreate: false
+index_concurrency: 24
 predict_question_max_concurrency: 15
 
 k_values: [3, 10, 20]
