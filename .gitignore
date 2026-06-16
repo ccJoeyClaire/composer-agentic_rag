@@ -53,8 +53,6 @@ coverage.xml
 
 # --- Local vector DB (Qdrant via docker-compose) ---
 qdrant_data/
-eval/.cache/
-
 # --- Eval datasets (large / downloaded) ---
 *.jsonl
 *.zip

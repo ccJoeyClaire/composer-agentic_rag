@@ -2,7 +2,7 @@
 
 All functions take an already-ranked list of unique ``DocId`` (best first) plus
 the query's graded relevance, so they stay pure and trivial to unit-test. The
-retrieval side (chunks -> ranked doc ids) lives in :mod:`_eval_.pipeline`.
+retrieval side (chunks -> ranked doc ids) lives in :mod:`_eval_.rag_eval.pipeline`.
 
 Definitions (k = cutoff):
 * Recall@k — fraction of the query's gold docs found in the top-k.
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import math
 
-from _eval_.beir import DocId, RelevanceMap
+from _eval_.data_preparing.beir import DocId, RelevanceMap
 
 
 def recall_at_k(ranked: list[DocId], gold: set[DocId], k: int) -> float:

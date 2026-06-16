@@ -1,3 +1,5 @@
+"""Keyword/heading gold recall helpers for pytest smoke cases."""
+
 from __future__ import annotations
 
 import json
@@ -45,7 +47,7 @@ def chunk_matches(case: GoldRagCase, chunk_text: str, meta: dict) -> bool:
     return False
 
 
-def recall_at_k(chunks: Iterable, case: GoldRagCase, k: int) -> float:
+def recall_at_k(chunks: Iterable[object], case: GoldRagCase, k: int) -> float:
     selected = list(chunks)[:k]
     for chunk in selected:
         text = getattr(chunk, "content", str(chunk))
@@ -53,9 +55,3 @@ def recall_at_k(chunks: Iterable, case: GoldRagCase, k: int) -> float:
         if chunk_matches(case, text, meta):
             return 1.0
     return 0.0
-
-
-def mean_recall_at_k(all_scores: list[float]) -> float:
-    if not all_scores:
-        return 0.0
-    return sum(all_scores) / len(all_scores)

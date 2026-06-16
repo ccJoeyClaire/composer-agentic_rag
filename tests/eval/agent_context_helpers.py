@@ -1,4 +1,4 @@
-"""CRAG isolation scenarios and context recall helpers."""
+"""CRAG isolation scenarios and context recall helpers for pytest."""
 
 from __future__ import annotations
 
@@ -8,9 +8,8 @@ from typing import Awaitable, Callable, NotRequired, TypedDict
 
 from agent.reflection.parsers import split_rag_chunks
 from agent.subgraph.CRAG import CragConfig, build_crag_subgraph
-from eval.paths import REPO_ROOT
-from eval.rag.metrics.recall import GoldRagCase, recall_at_k
 from rag.base import Chunk
+from tests.eval.gold_recall import GoldRagCase, recall_at_k
 
 CragLabel = TypedDict("CragLabel", {"index": int, "label": str})
 
@@ -36,6 +35,8 @@ def load_agent_context_cases(path: Path) -> list[GoldAgentContextCase]:
 
 
 def load_fixture_text(relative_path: str) -> str:
+    from _eval_.paths import REPO_ROOT
+
     path = REPO_ROOT / relative_path
     return path.read_text(encoding="utf-8").strip()
 

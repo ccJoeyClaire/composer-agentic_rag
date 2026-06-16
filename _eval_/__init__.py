@@ -1,11 +1,17 @@
-"""Standalone RAG eval pipeline built around BEIR-style datasets.
+"""Standalone eval pipelines built around BEIR-style datasets.
 
-Pipeline stages (each in its own module, composed by :mod:`_eval_.run`):
+Layout::
 
-1. :mod:`_eval_.beir`     — stream corpus / queries / qrels (graded relevance).
-2. :mod:`_eval_.pooling`  — pick a query subset and the pooled doc set to index.
-3. :mod:`_eval_.pipeline` — index the pool per RAG profile, then run queries.
-4. :mod:`_eval_.metrics`  — Recall@k / MRR@k / nDCG@k on the ranked doc ids.
+    data_preparing/   — corpus, queries, qrels, pooled subset
+    scoring/          — Recall@k / MRR@k / nDCG@k
+    rag_eval/         — RAG profile comparison (pipeline + run)
+    agent_eval/       — agent pattern comparison (pipeline + judge + run)
 
-Run it with ``python -m _eval_.run --dataset trec-covid``.
+Run RAG eval (config: ``rag_eval_arg_config.yaml``)::
+
+    python -m _eval_.rag_eval.run
+
+Run agent eval::
+
+    python -m _eval_.agent_eval.run
 """

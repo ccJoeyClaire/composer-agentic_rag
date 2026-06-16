@@ -1,12 +1,12 @@
-"""Unit tests for eval recall helpers (algorithm only, not gold eval)."""
+"""Unit tests for gold recall helpers (algorithm only, not gold eval)."""
 
 from __future__ import annotations
 
 import pytest
 
-from eval.rag.metrics.recall import load_gold_cases, recall_at_k
-from eval.paths import dataset_dir
+from _eval_.paths import dataset_dir
 from rag.base import Chunk
+from tests.eval.gold_recall import load_gold_cases, recall_at_k
 
 pytestmark = pytest.mark.unit
 

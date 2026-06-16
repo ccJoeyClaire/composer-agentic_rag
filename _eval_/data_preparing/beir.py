@@ -143,3 +143,40 @@ def load_qrels(path: Path) -> Qrels:
                 continue
             qrels.setdefault(qid, {})[doc_id] = score
     return qrels
+
+
+def _smoke_dataset_id() -> str:
+    return "trec-covid"
+
+
+def _main() -> None:
+    """Print sample structures from the configured smoke dataset."""
+    from _eval_.config import DATASETS
+
+    dataset_id = _smoke_dataset_id()
+    spec = DATASETS[dataset_id]
+    print(f"dataset={dataset_id}")
+
+    corpus_path = spec.corpus_path()
+    first_doc = next(iter_corpus(corpus_path), None)
+    print(f"CorpusDoc sample: {first_doc!r}")
+
+    queries = load_queries(spec.queries_path())
+    first_qid = next(iter(queries), None)
+    if first_qid is not None:
+        print(f"EvalQuery sample: {queries[first_qid]!r}")
+
+    qrels = load_qrels(spec.qrels_path())
+    first_rel_qid = next(iter(qrels), None)
+    if first_rel_qid is not None:
+        rel = qrels[first_rel_qid]
+        first_doc_id = next(iter(rel), None)
+        print(
+            f"Qrels sample: query_id={first_rel_qid!r} "
+            f"doc_id={first_doc_id!r} score={rel.get(first_doc_id)!r}"
+        )
+    print(f"counts: queries={len(queries)} qrels_queries={len(qrels)}")
+
+
+if __name__ == "__main__":
+    _main()

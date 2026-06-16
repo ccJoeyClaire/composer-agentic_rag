@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from eval.paths import dataset_dir
-from eval.paths import dataset_dir
-from eval.agent.context import (
+from _eval_.paths import dataset_dir
+from tests.eval.agent_context_helpers import (
     load_agent_context_cases,
     load_fixture_text,
     recall_on_context,

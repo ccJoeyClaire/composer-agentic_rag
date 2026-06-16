@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from _eval_.beir import DocId, QueryId, Qrels
+from _eval_.data_preparing.beir import DocId, QueryId, Qrels
 
 
 @dataclass(frozen=True)
@@ -39,11 +39,29 @@ def gold_docs(relevance: dict[DocId, int], rel_threshold: int) -> set[DocId]:
     return {doc_id for doc_id, score in relevance.items() if score >= rel_threshold}
 
 
+def distractor_docs(
+    relevance: dict[DocId, int],
+    rel_threshold: int,
+    max_distractors: int | None = None,
+) -> set[DocId]:
+    """Return judged-irrelevant doc ids for one query (score < threshold).
+
+    When ``max_distractors`` is set, only the first N in qrels iteration order
+    are kept so pool size stays bounded without changing which docs count as gold.
+    """
+    distractors = [
+        doc_id for doc_id, score in relevance.items() if score < rel_threshold
+    ]
+    if max_distractors is not None:
+        distractors = distractors[:max_distractors]
+    return set(distractors)
+
+
 def queries_with_gold(qrels: Qrels, rel_threshold: int) -> list[QueryId]:
     """Query ids that have at least one gold doc; recall is undefined otherwise.
 
     Sorted by (id length, id) so a numeric-id dataset yields a stable, intuitive
-    order (1, 2, ... 10) and a ``--limit`` prefix is reproducible.
+    order (1, 2, ... 10) and a limit prefix is reproducible.
     """
     qualifying = [
         qid for qid, rel in qrels.items() if gold_docs(rel, rel_threshold)
@@ -71,13 +89,31 @@ def build_pool(
     for qid in query_ids:
         relevance = qrels.get(qid, {})
         pool |= gold_docs(relevance, spec.rel_threshold)
-
-        distractors = [
-            doc_id
-            for doc_id, score in relevance.items()
-            if score < spec.rel_threshold
-        ]
-        if spec.max_distractors_per_query is not None:
-            distractors = distractors[: spec.max_distractors_per_query]
-        pool.update(distractors)
+        pool |= distractor_docs(
+            relevance, spec.rel_threshold, spec.max_distractors_per_query
+        )
     return pool
+
+
+def _main() -> None:
+    """Print pool stats for a small query subset of the smoke dataset."""
+    from _eval_.config import DATASETS, DEFAULT_QUERY_LIMIT
+    from _eval_.data_preparing.beir import load_qrels
+
+    dataset_id = "trec-covid"
+    spec = DATASETS[dataset_id]
+    rel_threshold = 1
+    qrels = load_qrels(spec.qrels_path())
+
+    query_ids = queries_with_gold(qrels, rel_threshold)[:DEFAULT_QUERY_LIMIT]
+    pool_spec = PoolSpec(rel_threshold=rel_threshold, max_distractors_per_query=100)
+    pool_ids = build_pool(qrels, query_ids, pool_spec)
+
+    gold_counts = [len(gold_docs(qrels[qid], rel_threshold)) for qid in query_ids]
+    print(f"dataset={dataset_id} query_ids={query_ids}")
+    print(f"pool_docs={len(pool_ids)} gold_per_query={gold_counts}")
+    print(f"pool_spec={pool_spec!r}")
+
+
+if __name__ == "__main__":
+    _main()

@@ -4,7 +4,7 @@ The bridge to the qrels-based framework is :class:`RecordingRetriever`: it wraps
 the real ``RAGRetriever``, is bound as the agent's ``RAG_search_tool`` backend,
 and records the doc ids returned by every retrieval the agent makes. After a run
 we know exactly which corpus docs entered the agent's context, so we can reuse
-:mod:`_eval_.metrics` to compute context Recall/MRR/nDCG against qrels — even
+:mod:`_eval_.scoring.metrics` to compute context Recall/MRR/nDCG against qrels — even
 across multiple RAG calls triggered by reflection (CRAG/Self-RAG) loops.
 
 Beyond context quality we record process signals (RAG/tool call counts, reflection
@@ -13,6 +13,7 @@ verdicts) and, optionally, an LLM-judged answer correctness/grounding score.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import TypedDict
 
@@ -22,20 +23,50 @@ from agent.graph import AgentConfig, build_agent
 from agent.state import DEFAULT_RAG_TOOL_NAME
 from llm.client import LLMClient
 from rag.base import Chunk
-from rag.core import RAGRetriever
+from rag.core import RAGIndexer, RAGRetriever
 from tools.LocalTool.RAG_tool import bind_retriever
 from tools.tool_box import ToolBox
 
-from _eval_.beir import DocId, EvalQuery, Qrels, QueryId, SOURCE_META_KEY
 from _eval_.config import AGENT_SYSTEM_PROMPT, AgentRunConfig
-from _eval_.judge import judge_answer
-from _eval_.metrics import mean_metrics, query_metrics
-from _eval_.pooling import gold_docs
+from _eval_.data_preparing.beir import (
+    CorpusDoc,
+    DocId,
+    EvalQuery,
+    Qrels,
+    QueryId,
+    SOURCE_META_KEY,
+)
+from _eval_.data_preparing.pooling import gold_docs
+from _eval_.agent_eval.judge import judge_answer
+from _eval_.scoring.metrics import mean_metrics, query_metrics
 
-# Restrict the toolbox to local tools so eval is deterministic and offline (no
-# external web search). The agent still gets RAG_search_tool, which is all the
-# reflection patterns need for their retrieval loops.
 _LOCAL_TOOL_PACKAGES = ("tools.LocalTool",)
+
+# Duplicated in rag_eval.pipeline (independent eval lines). Keep in sync;
+# parity tests: tests/eval/test_store_ops.py
+
+
+async def drop_collection(store) -> None:
+    """Delete the backing collection when it exists."""
+    if await store.client.collection_exists(store.collection):
+        await store.client.delete_collection(store.collection)
+
+
+async def index_doc_list(
+    indexer: RAGIndexer,
+    docs: list[CorpusDoc],
+    *,
+    concurrency: int,
+) -> int:
+    """Index a list of docs with bounded concurrency; returns docs indexed."""
+    semaphore = asyncio.Semaphore(concurrency)
+
+    async def _index_one(text: str, source: str) -> None:
+        async with semaphore:
+            await indexer.aindex(text, source=source)
+
+    await asyncio.gather(*(_index_one(doc.text, doc.doc_id) for doc in docs))
+    return len(docs)
 
 
 class AgentQueryScore(TypedDict):
@@ -58,11 +89,7 @@ class AgentPatternResult:
 
 
 class RecordingRetriever:
-    """Wraps a ``RAGRetriever`` and records the doc ids of every retrieval.
-
-    Duck-typed: the RAG tool only calls ``aquery``. ``reset`` is called before
-    each query so :meth:`retrieved_doc_ids` reflects a single agent run.
-    """
+    """Wraps a ``RAGRetriever`` and records the doc ids of every retrieval."""
 
     def __init__(self, inner: RAGRetriever) -> None:
         self.inner = inner
@@ -198,12 +225,7 @@ async def evaluate_pattern(
     gold_texts: dict[QueryId, list[str]],
     cfg: AgentRunConfig,
 ) -> AgentPatternResult:
-    """Run ``pattern`` over every evaluated query against a shared retriever.
-
-    The shared ``retriever`` is wrapped in a fresh :class:`RecordingRetriever`
-    and bound as the RAG tool backend, so all patterns retrieve from the same
-    index and only the agent control flow differs.
-    """
+    """Run ``pattern`` over every evaluated query against a shared retriever."""
     recorder = RecordingRetriever(retriever)
     bind_retriever(recorder, top_k=cfg.agent_rag_top_k)  # type: ignore[arg-type]
 

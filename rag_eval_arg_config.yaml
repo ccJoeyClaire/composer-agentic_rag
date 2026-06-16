@@ -1,0 +1,15 @@
+dataset: trec-covid
+profiles:
+  - baseline
+
+query_limit: 5
+recreate: true
+index_concurrency: 8
+predict_question_max_concurrency: 15
+
+k_values: [3, 10, 20]
+chunk_fetch_multiplier: 4
+
+pool:
+  rel_threshold: 1
+  max_distractors_per_query: null

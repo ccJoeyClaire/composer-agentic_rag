@@ -7,11 +7,11 @@ on context recall, process cost, and (optionally) judged answer quality.
 Examples (run from repo root):
 
     # Compare plain ReAct vs CRAG vs Self-RAG on 5 queries.
-    python -m _eval_.run_agent --dataset trec-covid \
+    python -m _eval_.agent_eval.run --dataset trec-covid \
         --pattern react --pattern react_crag --pattern react_self_rag
 
     # Add LLM-judged answer correctness/grounding.
-    python -m _eval_.run_agent --dataset trec-covid --pattern react --judge
+    python -m _eval_.agent_eval.run --dataset trec-covid --pattern react --judge
 """
 
 from __future__ import annotations
@@ -19,30 +19,83 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import os
 from datetime import datetime, timezone
 
-from eval.bootstrap import setup_eval_env
+from dotenv import load_dotenv
 
-setup_eval_env()
+from _eval_.paths import REPO_ROOT, results_dir
+
+load_dotenv(REPO_ROOT / ".env")
 
 import asyncio
 
-from eval.profiles import RAGProfile, build_indexer_for_profile, build_retriever_for_profile
+import yaml
 
-from _eval_.agent_pipeline import AgentPatternResult, evaluate_pattern
-from _eval_.beir import QueryId, iter_corpus, load_qrels, load_queries
+from rag.build import build_RAG_indexer, build_RAG_retriever
+from rag.core import RAGIndexer, RAGRetriever
+
+from _eval_.agent_eval.pipeline import (
+    AgentPatternResult,
+    drop_collection,
+    evaluate_pattern,
+    index_doc_list,
+)
 from _eval_.config import (
+    DATASETS,
     DEFAULT_AGENT_RAG_TOP_K,
+    DEFAULT_PREDICT_QUESTION_MAX_CONCURRENCY,
     DEFAULT_QUERY_LIMIT,
     AgentRunConfig,
     collection_name,
-    get_dataset_spec,
 )
-from _eval_.paths import results_dir
-from _eval_.pipeline import drop_collection, index_doc_list
-from _eval_.pooling import PoolSpec, build_pool, gold_docs, queries_with_gold
+from _eval_.data_preparing.beir import QueryId, iter_corpus, load_qrels, load_queries
+from _eval_.data_preparing.pooling import PoolSpec, build_pool, gold_docs, queries_with_gold
 
 _MAX_GOLD_TEXTS_PER_QUERY = 3
+_PROFILE_BOOL_FIELDS = (
+    "use_token_chunker",
+    "use_contextual",
+    "use_small_to_big",
+    "use_predict_questions",
+    "use_hyde",
+    "use_reranker",
+)
+
+
+def _load_profile_flags(profile_id: str) -> dict[str, bool]:
+    with (REPO_ROOT / "arg_config.yaml").open(encoding="utf-8") as handle:
+        data = yaml.safe_load(handle)
+    raw = data["profiles"][profile_id]
+    return {key: bool(raw.get(key, False)) for key in _PROFILE_BOOL_FIELDS}
+
+
+def _build_agent_rag(profile_id: str, collection: str) -> tuple[RAGIndexer, RAGRetriever]:
+    """Build indexer + retriever for the agent's shared RAG backend."""
+    flags = _load_profile_flags(profile_id)
+    predict_concurrency = (
+        max(1, int(os.environ.get("EVAL_LLM_CONCURRENCY", DEFAULT_PREDICT_QUESTION_MAX_CONCURRENCY)))
+        if flags["use_predict_questions"]
+        else None
+    )
+    indexer = build_RAG_indexer(
+        collection,
+        use_token_chunker=flags["use_token_chunker"],
+        use_contextual=flags["use_contextual"],
+        use_predict_questions=flags["use_predict_questions"],
+        use_small_to_big=flags["use_small_to_big"],
+        predict_question_max_concurrency=predict_concurrency,
+    )
+    retriever = build_RAG_retriever(
+        collection,
+        use_reranker=flags["use_reranker"],
+        use_contextual=flags["use_contextual"],
+        use_hyde=flags["use_hyde"],
+        use_small_to_big=flags["use_small_to_big"],
+        store=indexer.store,
+        embedder=indexer.embedder,
+    )
+    return indexer, retriever
 
 
 def _format_table(results: list[AgentPatternResult]) -> str:
@@ -87,7 +140,7 @@ def _write_results(cfg: AgentRunConfig, results: list[AgentPatternResult]) -> st
 
 
 async def run_agent_eval(cfg: AgentRunConfig) -> list[AgentPatternResult]:
-    spec = get_dataset_spec(cfg.dataset)
+    spec = DATASETS[cfg.dataset]
     qrels = load_qrels(spec.qrels_path())
     queries = load_queries(spec.queries_path())
 
@@ -108,19 +161,11 @@ async def run_agent_eval(cfg: AgentRunConfig) -> list[AgentPatternResult]:
         f"rag_profile={cfg.rag_profile} patterns={cfg.patterns} judge={cfg.use_judge}"
     )
 
-    profile = RAGProfile.get(cfg.rag_profile)
     collection = collection_name(cfg.dataset, cfg.rag_profile)
-    indexer = build_indexer_for_profile(profile, collection, in_memory=cfg.in_memory)
+    indexer, retriever = _build_agent_rag(cfg.rag_profile, collection)
     if cfg.recreate:
         await drop_collection(indexer.store)
     await index_doc_list(indexer, docs, concurrency=cfg.index_concurrency)
-    retriever = build_retriever_for_profile(
-        profile,
-        collection,
-        in_memory=cfg.in_memory,
-        store=indexer.store,
-        embedder=indexer.embedder,
-    )
 
     results: list[AgentPatternResult] = []
     try:
@@ -173,7 +218,6 @@ def _build_config(args: argparse.Namespace) -> AgentRunConfig:
         k_values=k_values,
         query_limit=args.limit,
         agent_rag_top_k=args.agent_rag_top_k,
-        in_memory=not args.docker,
         recreate=not args.no_recreate,
         use_judge=args.judge,
     )
@@ -190,7 +234,6 @@ def main() -> None:
     parser.add_argument("--k", action="append", help="Repeatable metric cutoff (default 3,10,20)")
     parser.add_argument("--agent-rag-top-k", type=int, default=DEFAULT_AGENT_RAG_TOP_K)
     parser.add_argument("--judge", action="store_true", help="Enable LLM-as-judge answer scoring")
-    parser.add_argument("--docker", action="store_true", help="Use Qdrant at 127.0.0.1:6333 instead of local path")
     parser.add_argument("--no-recreate", action="store_true", help="Keep existing collection (faster re-runs)")
     args = parser.parse_args()
 

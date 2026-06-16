@@ -1,19 +1,29 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 REPO_ROOT = PACKAGE_ROOT.parent
-
-# Reuse the datasets already downloaded under the legacy eval/ tree so we do not
-# duplicate multi-GB corpora. Override with EVAL_DATASETS_ROOT if they move.
-DATASETS_ROOT = REPO_ROOT / "eval" / "datasets"
 RESULTS_ROOT = PACKAGE_ROOT / "results"
+
+def datasets_root() -> Path:
+    """Return the root directory for BEIR dataset files.
+
+    Resolution order:
+    1. ``EVAL_DATASETS_ROOT`` env var (absolute or repo-relative path).
+    2. ``_eval_/datasets`` (created on demand for new downloads).
+    """
+    if env_root := os.environ.get("EVAL_DATASETS_ROOT"):
+        path = Path(env_root)
+        return path if path.is_absolute() else REPO_ROOT / path
+
+    return PACKAGE_ROOT / "datasets"
 
 
 def dataset_dir(name: str) -> Path:
     """Return the root directory holding ``name``'s corpus/queries/qrels."""
-    return DATASETS_ROOT / name
+    return datasets_root() / name
 
 
 def results_dir() -> Path:
