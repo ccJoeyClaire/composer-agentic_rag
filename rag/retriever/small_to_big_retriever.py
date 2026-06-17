@@ -7,6 +7,9 @@ Small-to-Big 检索器：向量搜索 small chunk，query 时物化 parent windo
 - 单 hit：直接展开该 hit 的 anchor_window（hit 即 anchor，天然居中）
 - 多 hit 且 window 重叠：聚类为 HitCluster，merged_window 后物化为一个 parent
 - 多 hit 且 window 不重叠：每个 cluster 各返回一个 parent（最多 top_k 个）
+
+Run (from repo root):
+  python -m rag.retriever.small_to_big_retriever
 """
 
 from __future__ import annotations
@@ -263,3 +266,36 @@ class SmallToBigRetriever(BaseRetriever):
             store=self.store,
             parent_token_budget=self.parent_token_budget,
         )
+
+
+async def _demo_main() -> None:
+    """Offline smoke: expand synthetic small hits to parent chunks."""
+    hits = [
+        Chunk(
+            content="Paris is the capital.",
+            metadata={
+                CHUNK_ID_KEY: "doc::0",
+                ANCHOR_WINDOW_KEY: {"anchor_id": "doc::0", "member_ids": ["doc::0", "doc::1"]},
+            },
+            score=0.9,
+        ),
+        Chunk(
+            content="France is in Europe.",
+            metadata={
+                CHUNK_ID_KEY: "doc::1",
+                ANCHOR_WINDOW_KEY: {"anchor_id": "doc::1", "member_ids": ["doc::0", "doc::1"]},
+            },
+            score=0.8,
+        ),
+    ]
+    parents = await expand_small_hits_to_parents(hits, top_k=2, store=None)
+    print(f"expand_small_hits_to_parents: {len(parents)} parent(s)")
+    for i, parent in enumerate(parents):
+        preview = parent.content[:120].replace("\n", " ")
+        print(f"  [{i}] role={parent.metadata.get(CHUNK_ROLE_KEY)} | {preview}...")
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(_demo_main())

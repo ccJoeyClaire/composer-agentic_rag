@@ -7,6 +7,9 @@ Small-to-Big (#3): lazy parent windows over indexed small chunks.
 与旧版区别：
 - 旧版 index 时贪心分组并写入 parent_content（边界 chunk 易丢上下文）
 - 新版 index 时只建覆盖关系，query 时以 hit 为中心物化 parent
+
+Run (from repo root):
+  python -m rag.document_augmentation.parent_builder
 """
 
 from __future__ import annotations
@@ -371,3 +374,49 @@ def materialize_parent_content(members: Sequence[Chunk]) -> str:
             last_end = end
 
     return "\n\n".join(parts)
+
+
+def _demo_main() -> None:
+    """Offline smoke: assign windows, cluster hits, materialize parents."""
+    from ..chunker.token_chunker import TokenChunker
+
+    sample = (
+        "# Fruits\n\n"
+        "Pineapple is a tropical fruit.\n\n"
+        "## Tropical\n\n"
+        "Mango grows in warm climates.\n\n"
+        "## Temperate\n\n"
+        "Apple is a common temperate fruit."
+    )
+    small_chunks = TokenChunker(chunk_tokens=15, overlap_tokens=3).run(sample)
+    for chunk in small_chunks:
+        chunk.metadata["heading_path"] = "Fruits > Demo"
+        chunk.metadata["source"] = "demo.md"
+
+    indexed = assign_parent_chunks(small_chunks, parent_token_budget=80)
+    print(f"Indexed {len(indexed)} small chunks")
+    for chunk in indexed[:3]:
+        meta = chunk.metadata or {}
+        window = meta.get(ANCHOR_WINDOW_KEY, {})
+        print(
+            f"  {meta.get(CHUNK_ID_KEY)}: members={len(window.get('member_ids', []))}"
+        )
+
+    if len(indexed) < 2:
+        print("\n(need >=2 chunks for cluster demo; got 1 — skipping cluster step)")
+        return
+
+    hits = [indexed[0], indexed[1]]
+    clusters = cluster_overlapping_hits(hits)
+    print(f"\nClustered {len(hits)} hits -> {len(clusters)} cluster(s)")
+    for cluster in clusters:
+        merged = cluster.merged_window()
+        member_ids = (merged or {}).get("member_ids", [])
+        members = [c for c in indexed if (c.metadata or {}).get(CHUNK_ID_KEY) in member_ids]
+        parent_text = materialize_parent_content(members)
+        preview = parent_text[:120].replace("\n", " ")
+        print(f"  parent ({len(members)} members): {preview}...")
+
+
+if __name__ == "__main__":
+    _demo_main()

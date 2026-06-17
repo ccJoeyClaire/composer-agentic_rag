@@ -2,6 +2,9 @@
 
 These are plain graph nodes composed directly in ``agent/graph.py``; they only
 read/write ``AgentState.metadata`` and never need their own subgraph.
+
+Run (from repo root):
+  python -m agent.reflection.self_rag
 """
 
 from __future__ import annotations
@@ -277,3 +280,43 @@ def rule_based_need_retrieve(text: str) -> bool:
         return True
 
     return False
+
+
+async def _demo_main() -> None:
+    """Offline smoke: rule-based retrieve classification and heuristic grounding."""
+    samples = [
+        ("Hello!", False),
+        ("What is retrieval-augmented generation?", True),
+        ("谢谢", False),
+        ("How does HyDE work?", True),
+    ]
+    print("=== rule_based_need_retrieve ===")
+    for text, expected in samples:
+        result = rule_based_need_retrieve(text)
+        mark = "ok" if result == expected else "!!"
+        print(f"  [{mark}] {text!r} -> {result}")
+
+    state: AgentState = {
+        "messages": [
+            HumanMessage(content="What is Paris?"),
+            AIMessage(content="Paris is a city in Germany with no famous landmarks."),
+        ],
+        "metadata": {
+            "rag_last_raw": "Paris is the capital of France.",
+            "rag_last_query": "What is Paris?",
+            "rag_attempt": 1,
+            "self_rag_retry_allowed": True,
+        },
+    }
+    patch = await self_rag_post_node(state, llm=None, grounded_fn=None, max_rag_attempts=2)
+    meta = patch.get("metadata") or {}
+    print("\n=== self_rag_post_node (heuristic, llm=None) ===")
+    print(f"  grounded={meta.get('self_rag_grounded')}")
+    retry = meta.get("self_rag_retry_hint", "(none)")
+    print(f"  retry_hint={str(retry)[:80]}")
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(_demo_main())

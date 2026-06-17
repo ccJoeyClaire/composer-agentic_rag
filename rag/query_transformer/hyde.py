@@ -54,3 +54,37 @@ class HyDETransformer(BaseQueryTransformer):
 
         self.last_document = doc
         return doc
+
+
+async def _demo_main() -> None:
+    """Integration smoke: HyDE hypothetical passage for one query.
+
+    Run (from repo root):
+      python -m rag.query_transformer.hyde
+    """
+    import argparse
+    import os
+    import sys
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    parser = argparse.ArgumentParser(description="HyDE query transform demo.")
+    parser.add_argument("--query", default="What is retrieval-augmented generation?")
+    args = parser.parse_args()
+
+    if not (os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY")):
+        print("Missing LLM_API_KEY (or OPENAI_API_KEY).", file=sys.stderr)
+        sys.exit(1)
+
+    transformer = HyDETransformer()
+    hyde_text = await transformer.atransform(args.query)
+    print(f"Query: {args.query}")
+    print(f"HyDE document:\n{hyde_text}")
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(_demo_main())

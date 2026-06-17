@@ -2,6 +2,9 @@
 
 Kept separate from ``rag.embedder`` so chunking does not depend on the
 indexing embedder implementation.
+
+Run (from repo root):
+  python -m rag.chunker.embedding_client
 """
 
 from __future__ import annotations
@@ -84,3 +87,30 @@ class ChunkerEmbeddingClient:
             )
             out.extend(item.embedding for item in response.data)
         return out
+
+
+def _demo_main() -> None:
+    """Integration smoke: embed paragraphs and report dimension + latency."""
+    import sys
+    import time
+
+    texts = [
+        "Retrieval-augmented generation combines search with LLMs.",
+        "Semantic chunking uses paragraph embeddings.",
+    ]
+    try:
+        client = ChunkerEmbeddingClient()
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+
+    start = time.perf_counter()
+    vectors = client.embed_texts(texts)
+    elapsed = time.perf_counter() - start
+    print(f"model={client.model}")
+    print(f"embedded {len(vectors)} texts, dim={len(vectors[0]) if vectors else 0}")
+    print(f"elapsed={elapsed:.2f}s")
+
+
+if __name__ == "__main__":
+    _demo_main()

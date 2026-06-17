@@ -71,3 +71,32 @@ class CrossEncoderReranker(BaseReranker):
             return list(chunks) # 避免没有 chunk 或 query 的情况
         return await asyncio.to_thread(self._rerank_sync, query, chunks) # rerank_sync 是主要的执行逻辑
 
+
+async def _demo_main() -> None:
+    """Integration smoke: rerank hardcoded passages for one query.
+
+    Run (from repo root):
+      python -m rag.reranker.cross_encoder_reranker
+    """
+    query = "What is retrieval-augmented generation?"
+    chunks = [
+        Chunk(content="RAG combines retrieval with language models.", metadata={"id": "a"}),
+        Chunk(content="The weather in Paris is sunny.", metadata={"id": "b"}),
+        Chunk(content="Vector databases store embeddings for search.", metadata={"id": "c"}),
+        Chunk(content="HyDE generates hypothetical documents for queries.", metadata={"id": "d"}),
+        Chunk(content="Cross-encoders score query-passage pairs.", metadata={"id": "e"}),
+    ]
+    print("Before:")
+    for c in chunks:
+        print(f"  {c.metadata.get('id')}: {c.content[:50]}")
+
+    reranker = CrossEncoderReranker()
+    ranked = await reranker.arerank(query, chunks)
+    print("\nAfter rerank:")
+    for c in ranked:
+        print(f"  {c.metadata.get('id')}: score={c.score:.4f} | {c.content[:50]}")
+
+
+if __name__ == "__main__":
+    asyncio.run(_demo_main())
+

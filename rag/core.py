@@ -47,11 +47,13 @@ class RAGIndexer:
         self.predict_question_enricher = predict_question_enricher
         self.small_to_big_parent_tokens = small_to_big_parent_tokens
 
-    async def aindex(self, text: str, source: str = "") -> bool:
+    async def aindex(self, text: str, source: str = "", *, doc_id: str = "") -> bool:
         chunks = self.chunker.run(text)
-        if source:
-            for c in chunks:
+        for c in chunks:
+            if source:
                 c.metadata.setdefault("source", source)
+            if doc_id:
+                c.metadata["doc_id"] = doc_id
 
         if self.small_to_big_parent_tokens:
             chunks = assign_parent_chunks(

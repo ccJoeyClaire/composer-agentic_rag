@@ -126,3 +126,53 @@ class ToolBox:
                 error=str(e),
                 source=info.source,
             )
+
+
+def _main() -> None:
+    """List or invoke registered tools.
+
+    Run (from repo root):
+      python -m tools.tool_box list
+      python -m tools.tool_box invoke integrate_function --args '{"func_str":"x**2","a":0,"b":1}'
+    """
+    import argparse
+    import json
+    import sys
+
+    parser = argparse.ArgumentParser(description="List or invoke ToolBox tools.")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("list", help="Print registered tool names and schemas")
+
+    invoke_p = sub.add_parser("invoke", help="Call a tool by name")
+    invoke_p.add_argument("name", help="Registered tool name")
+    invoke_p.add_argument(
+        "--args",
+        default="{}",
+        help='JSON object of tool arguments, e.g. \'{"func_str":"x**2","a":0,"b":1}\'',
+    )
+
+    args = parser.parse_args()
+    box = ToolBox()
+
+    if args.command == "list":
+        for schema in box.list_tools():
+            fn = schema.get("function", {})
+            print(f"{fn.get('name')}: {fn.get('description', '')[:80]}")
+        return
+
+    try:
+        tool_args = json.loads(args.args)
+    except json.JSONDecodeError as exc:
+        print(f"Invalid --args JSON: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    result = asyncio.run(box.ainvoke(args.name, tool_args))
+    if result.error:
+        print(f"error: {result.error}", file=sys.stderr)
+        sys.exit(1)
+    print(result.output)
+
+
+if __name__ == "__main__":
+    _main()

@@ -67,3 +67,31 @@ class OpenAIEmbedder(BaseEmbedder):
     async def aembed_query(self, query: str) -> List[float]:
         vectors = await self.aembed_texts([query])
         return vectors[0]
+
+
+async def _demo_main() -> None:
+    """Integration smoke: embed query + batch and print vector dimension.
+
+    Run (from repo root):
+      python -m rag.embedder.openai_embedder
+    """
+    import asyncio
+    import sys
+
+    try:
+        embedder = OpenAIEmbedder()
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+
+    query_vec = await embedder.aembed_query("What is RAG?")
+    batch = await embedder.aembed_texts(["Paris is in France.", "Berlin is in Germany."])
+    print(f"model={embedder.model}")
+    print(f"query dim={len(query_vec)}")
+    print(f"batch dims={[len(v) for v in batch]}")
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(_demo_main())

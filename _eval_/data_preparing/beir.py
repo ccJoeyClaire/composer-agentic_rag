@@ -26,8 +26,9 @@ QueryId = str
 RelevanceMap = dict[DocId, int]
 Qrels = dict[QueryId, RelevanceMap]
 
-# Metadata key the indexer stamps the source doc id under (see rag/core.py).
+# Chunk metadata keys stamped at index time (see rag/core.py ``aindex``).
 SOURCE_META_KEY = "source"
+DOC_ID_META_KEY = "doc_id"
 
 _DEFAULT_ID_FIELD = "_id"
 _DEFAULT_TEXT_FIELD = "text"
@@ -36,7 +37,7 @@ _DEFAULT_TITLE_FIELD = "title"
 
 @dataclass(frozen=True)
 class CorpusDoc:
-    """One indexable document after title+body composition."""
+    """One BEIR corpus row: body text for chunking plus optional title metadata."""
 
     doc_id: DocId
     text: str
@@ -51,12 +52,14 @@ class EvalQuery:
     text: str
 
 
-def _compose_text(title: str, body: str) -> str:
-    """Join a BEIR title and body the same way the legacy adapter does."""
-    title, body = title.strip(), body.strip()
-    if title and body:
-        return f"{title}\n\n{body}"
-    return title or body
+def resolve_chunk_doc_id(metadata: dict[str, object] | None) -> DocId | None:
+    """Map stored chunk metadata back to a BEIR corpus id for qrels scoring."""
+    meta = metadata or {}
+    doc_id = meta.get(DOC_ID_META_KEY)
+    if doc_id:
+        return str(doc_id)
+    legacy = meta.get(SOURCE_META_KEY)
+    return str(legacy) if legacy else None
 
 
 def iter_corpus(
@@ -78,7 +81,8 @@ def iter_corpus(
             BEIR exports.
 
     Yields:
-        :class:`CorpusDoc` with ``text`` already title+body composed.
+        :class:`CorpusDoc` with ``text`` set to the corpus body only; ``title`` is
+        kept separate for contextual indexing (``source`` at index time).
     """
     remaining = set(keep_ids) if keep_ids is not None else None
     with path.open(encoding="utf-8") as handle:
@@ -94,9 +98,9 @@ def iter_corpus(
                 if doc_id not in remaining:
                     continue
                 remaining.discard(doc_id)
-            title = str(raw.get(title_field, "") or "")
-            body = str(raw.get(text_field, "") or "")
-            yield CorpusDoc(doc_id=doc_id, text=_compose_text(title, body), title=title)
+            title = str(raw.get(title_field, "") or "").strip()
+            body = str(raw.get(text_field, "") or "").strip()
+            yield CorpusDoc(doc_id=doc_id, text=body, title=title)
             if remaining is not None and not remaining:
                 break
 
@@ -149,33 +153,67 @@ def _smoke_dataset_id() -> str:
     return "trec-covid"
 
 
+def _preview_text(text: str, max_chars: int = 200) -> str:
+    """Truncate long corpus bodies for terminal smoke output."""
+    if len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars]}... ({len(text)} chars total)"
+
+
+def _print_section(title: str, fields: dict[str, object]) -> None:
+    print(f"\n--- {title} ---")
+    for key, value in fields.items():
+        print(f"  {key}: {value}")
+
+
 def _main() -> None:
     """Print sample structures from the configured smoke dataset."""
     from _eval_.config import DATASETS
 
     dataset_id = _smoke_dataset_id()
     spec = DATASETS[dataset_id]
-    print(f"dataset={dataset_id}")
+    print(f"BEIR smoke load: {dataset_id}")
 
     corpus_path = spec.corpus_path()
     first_doc = next(iter_corpus(corpus_path), None)
-    print(f"CorpusDoc sample: {first_doc!r}")
+    if first_doc is not None:
+        _print_section(
+            "Corpus (first doc)",
+            {
+                "doc_id": first_doc.doc_id,
+                "title": first_doc.title,
+                "text": _preview_text(first_doc.text),
+            },
+        )
 
     queries = load_queries(spec.queries_path())
     first_qid = next(iter(queries), None)
     if first_qid is not None:
-        print(f"EvalQuery sample: {queries[first_qid]!r}")
+        query = queries[first_qid]
+        _print_section(
+            "Query (first)",
+            {"query_id": query.query_id, "text": query.text},
+        )
 
     qrels = load_qrels(spec.qrels_path())
     first_rel_qid = next(iter(qrels), None)
     if first_rel_qid is not None:
         rel = qrels[first_rel_qid]
         first_doc_id = next(iter(rel), None)
-        print(
-            f"Qrels sample: query_id={first_rel_qid!r} "
-            f"doc_id={first_doc_id!r} score={rel.get(first_doc_id)!r}"
+        _print_section(
+            "Qrels (first row)",
+            {
+                "query_id": first_rel_qid,
+                "doc_id": first_doc_id,
+                "score": rel.get(first_doc_id),
+            },
         )
-    print(f"counts: queries={len(queries)} qrels_queries={len(qrels)}")
+
+    _print_section(
+        "Counts",
+        {"queries": len(queries), "qrels_queries": len(qrels)},
+    )
+    print()
 
 
 if __name__ == "__main__":

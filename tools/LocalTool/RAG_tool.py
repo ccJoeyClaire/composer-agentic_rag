@@ -313,3 +313,82 @@ def RAG_search_tool(
     chunks = _run_async(retriever.aquery(query, top_k=effective_top_k))
     body = "\n\n---\n\n".join(c.content for c in chunks)
     return _append_notes(body, notes)
+
+
+def _require_embedding_key() -> None:
+    import os
+    import sys
+
+    key = os.environ.get("EMBEDDING_API_KEY") or os.environ.get("LLM_API_KEY")
+    if not key:
+        print("Missing EMBEDDING_API_KEY or LLM_API_KEY in environment.", file=sys.stderr)
+        sys.exit(1)
+
+
+def _main() -> None:
+    """CLI for RAG_index_tool / RAG_search_tool (agent tool surface).
+
+    Run (from repo root):
+      python -m tools.LocalTool.RAG_tool index --text "..." --source doc.md --in-memory
+      python -m tools.LocalTool.RAG_tool search "query" --in-memory [--hyde] [--rerank]
+    """
+    import argparse
+    import sys
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    parser = argparse.ArgumentParser(description="Index or search via RAG tools.")
+    parser.add_argument("--collection", default="demo")
+    parser.add_argument("--in-memory", action="store_true")
+    parser.add_argument("--contextual", action="store_true")
+    parser.add_argument("--small-to-big", action="store_true")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    index_p = sub.add_parser("index", help="Index text via RAG_index_tool")
+    index_p.add_argument("--text", required=True)
+    index_p.add_argument("--source", default="cli.md")
+    index_p.add_argument("--predict-questions", action="store_true")
+
+    search_p = sub.add_parser("search", help="Search via RAG_search_tool")
+    search_p.add_argument("query")
+    search_p.add_argument("--top-k", type=int, default=None)
+    search_p.add_argument("--hyde", action="store_true")
+    search_p.add_argument("--rerank", action="store_true")
+    search_p.add_argument("--recall-n", type=int, default=None)
+
+    args = parser.parse_args()
+    _require_embedding_key()
+
+    bind_rag_context(
+        collection=args.collection,
+        in_memory=args.in_memory,
+        use_contextual=args.contextual,
+        use_small_to_big=args.small_to_big,
+    )
+
+    try:
+        if args.command == "index":
+            out = RAG_index_tool(
+                text=args.text,
+                source=args.source,
+                use_predict_questions=args.predict_questions,
+            )
+        else:
+            out = RAG_search_tool(
+                query=args.query,
+                use_hyde=args.hyde,
+                use_reranker=args.rerank,
+                recall_n=args.recall_n,
+                top_k=args.top_k,
+            )
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+
+    print(out)
+
+
+if __name__ == "__main__":
+    _main()

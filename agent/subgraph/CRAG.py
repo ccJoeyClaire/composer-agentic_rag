@@ -5,6 +5,11 @@ internal re-retrieval loop (escalating query-time variants via ``RAG_search_tool
 then an optional reserved web fallback). All intermediate state lives in the private
 :class:`CragState`; only the final qualified context is written back to ``AgentState``
 by the parent wrapper node (:func:`build_crag_node`).
+
+Run (from repo root):
+  python -m agent.subgraph.CRAG --logic
+  python -m agent.subgraph.CRAG --subgraph
+  python -m agent.subgraph.CRAG --live
 """
 
 from __future__ import annotations
@@ -27,9 +32,12 @@ from agent.state import (
 )
 from llm.client import LLMClient
 
+from agent.subgraph.score_fn import (
+    CrossEncoderScoreConfig,
+    ScorePassagesFn,
+    build_cross_encoder_score_fn,
+)
 from rag.config import get_rag_config
-
-ScorePassagesFn = Callable[[str, List[str]], Awaitable[List[dict]]]
 RetrieveFn = Callable[[str, dict], Awaitable[str]]
 WebFn = Callable[[str], Awaitable[str]]
 
@@ -79,6 +87,9 @@ class CragConfig:
     rag_tool_name: str = DEFAULT_RAG_TOOL_NAME
     max_rag_attempts: int = DEFAULT_MAX_RAG_ATTEMPTS
     score_fn: ScorePassagesFn | None = None
+    cross_encoder_score: CrossEncoderScoreConfig = field(
+        default_factory=CrossEncoderScoreConfig
+    )
     tool_box: object | None = None
     retrieve_fn: RetrieveFn | None = None
     web_enabled: bool = False
@@ -122,6 +133,20 @@ async def default_score_passages(
     except json.JSONDecodeError:
         payload = {}
     return _normalize_labels(payload.get("labels", []), len(passages))
+
+
+def resolve_score_fn(config: CragConfig) -> ScorePassagesFn | None:
+    """Pick the passage scorer: explicit ``score_fn`` > LLM > cross-encoder default."""
+    if config.score_fn is not None:
+        return config.score_fn
+    if config.llm is not None:
+        llm = config.llm
+
+        async def _llm_score(query: str, passages: List[str]) -> List[dict]:
+            return await default_score_passages(llm, query, passages)
+
+        return _llm_score
+    return build_cross_encoder_score_fn(config.cross_encoder_score)
 
 
 def compute_verdict(labels: List[dict]) -> str:
@@ -277,10 +302,11 @@ async def finalize_node(state: CragState) -> dict:
 
 def build_crag_subgraph(config: CragConfig):
     graph = StateGraph(CragState)
+    score_fn = resolve_score_fn(config)
 
     graph.add_node(
         "score",
-        partial(score_node, llm=config.llm, score_fn=config.score_fn),
+        partial(score_node, llm=None, score_fn=score_fn),
     )
     graph.add_node("verdict", partial(verdict_node, web_enabled=config.web_enabled))
     graph.add_node("reretrieve", partial(reretrieve_node, crag_config=config))
@@ -373,3 +399,108 @@ def build_crag_node(config: CragConfig):
         return updates
 
     return crag_node
+
+
+def _run_logic_demo() -> None:
+    """Print verdict/action truth table and escalation ladder."""
+    fixtures: list[tuple[str, list[dict]]] = [
+        ("all correct", [{"index": 0, "label": "correct"}]),
+        ("has incorrect", [{"index": 0, "label": "incorrect"}]),
+        ("ambiguous majority", [
+            {"index": 0, "label": "ambiguous"},
+            {"index": 1, "label": "ambiguous"},
+        ]),
+    ]
+    print("=== compute_verdict / decide_action ===")
+    for name, labels in fixtures:
+        verdict = compute_verdict(labels)
+        action = decide_action(
+            verdict,
+            attempt=1,
+            max_attempts=2,
+            web_enabled=True,
+            web_used=False,
+        )
+        print(f"  {name}: verdict={verdict!r} action={action!r}")
+
+    print("\n=== default_escalation ===")
+    for i, step in enumerate(default_escalation()):
+        print(f"  [{i}] {step}")
+
+
+async def _run_subgraph_demo() -> None:
+    """Run CRAG subgraph with injected stub retrieve/score fns."""
+    call_count = 0
+
+    async def stub_score(query: str, passages: list[str]) -> list[dict]:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return [{"index": i, "label": "incorrect"} for i in range(len(passages))]
+        return [{"index": 0, "label": "correct"}]
+
+    async def stub_retrieve(query: str, options: dict) -> str:
+        return "Better passage about RAG.\n\n---\n\nSecond improved chunk."
+
+    config = CragConfig(
+        score_fn=stub_score,
+        retrieve_fn=stub_retrieve,
+        max_rag_attempts=2,
+        web_enabled=False,
+        tool_box=None,
+    )
+    subgraph = build_crag_subgraph(config)
+    init: CragState = {
+        "query": "What is RAG?",
+        "passages": ["Weak passage.", "Another weak hit."],
+        "attempt": 1,
+        "max_attempts": 2,
+        "methods_tried": [],
+        "web_used": False,
+    }
+    final = await subgraph.ainvoke(init)
+    print("=== subgraph sandbox (stub score + retrieve) ===")
+    print(f"  verdict={final.get('verdict')}")
+    print(f"  action={final.get('action')}")
+    print(f"  attempt={final.get('attempt')}")
+    print(f"  methods_tried={final.get('methods_tried')}")
+    preview = (final.get("final_context") or "")[:200]
+    print(f"  final_context={preview!r}...")
+
+
+async def _run_live_demo() -> None:
+    """Score hardcoded passages with cross-encoder."""
+    passages = [
+        "Retrieval-augmented generation combines retrieval with LLMs.",
+        "The weather in Paris is sunny today.",
+    ]
+    score_fn = resolve_score_fn(
+        CragConfig(llm=None, score_fn=None, tool_box=None)
+    )
+    labels = await score_fn("What is RAG?", passages)  # type: ignore[misc]
+    print("=== live cross-encoder scoring ===")
+    for item in labels:
+        print(f"  [{item.get('index')}] {item.get('label')} score={item.get('score')}")
+
+
+def _main() -> None:
+    import argparse
+    import asyncio
+
+    parser = argparse.ArgumentParser(description="CRAG logic demo, subgraph sandbox, or live scoring.")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--logic", action="store_true", help="Verdict/action table (default)")
+    group.add_argument("--subgraph", action="store_true", help="Stub subgraph run")
+    group.add_argument("--live", action="store_true", help="Cross-encoder scoring (downloads model)")
+    args = parser.parse_args()
+
+    if args.subgraph:
+        asyncio.run(_run_subgraph_demo())
+    elif args.live:
+        asyncio.run(_run_live_demo())
+    else:
+        _run_logic_demo()
+
+
+if __name__ == "__main__":
+    _main()

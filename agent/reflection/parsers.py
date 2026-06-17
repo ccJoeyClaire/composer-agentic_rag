@@ -1,4 +1,8 @@
-"""Parse RAG tool outputs from AgentState messages."""
+"""Parse RAG tool outputs from AgentState messages.
+
+Run (from repo root):
+  python -m agent.reflection.parsers
+"""
 
 from __future__ import annotations
 
@@ -55,3 +59,37 @@ def extract_rag_tool_results(
             }
         )
     return results
+
+
+def _demo_main() -> None:
+    """Offline smoke: extract latest RAG batch and split chunks."""
+    from agent.state import DEFAULT_RAG_TOOL_NAME, DEFAULT_WEB_TOOL_NAME
+
+    messages = [
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": DEFAULT_RAG_TOOL_NAME,
+                    "args": {"query": "What is RAG?"},
+                    "id": "tc_rag",
+                },
+                {
+                    "name": DEFAULT_WEB_TOOL_NAME,
+                    "args": {"query": "ignored"},
+                    "id": "tc_web",
+                },
+            ],
+        ),
+        ToolMessage(content="alpha\n\n---\n\nbeta", tool_call_id="tc_rag"),
+        ToolMessage(content="web result", tool_call_id="tc_web"),
+    ]
+    hits = extract_rag_tool_results(messages)
+    print(f"extract_rag_tool_results: {len(hits)} RAG hit(s)")
+    for hit in hits:
+        chunks = split_rag_chunks(hit["raw"])
+        print(f"  query={hit['query']!r} chunks={chunks}")
+
+
+if __name__ == "__main__":
+    _demo_main()

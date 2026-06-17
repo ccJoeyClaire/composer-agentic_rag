@@ -56,3 +56,41 @@ async def convert_with_ocr(
         "convert_to_markdown",
         {"uri": uri},
     )
+
+
+def _main() -> None:
+    """Markitdown MCP tool smoke test.
+
+    Run (from repo root):
+      python -m tools.MCPTool.markitdown_tool convert file:///path/to/doc.pdf
+      python -m tools.MCPTool.markitdown_tool ocr file:///path/to/scan.pdf
+    """
+    import argparse
+    import asyncio
+    import sys
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    parser = argparse.ArgumentParser(description="Markitdown MCP tool CLI.")
+    sub = parser.add_subparsers(dest="command", required=True)
+    convert_p = sub.add_parser("convert")
+    convert_p.add_argument("uri")
+    ocr_p = sub.add_parser("ocr")
+    ocr_p.add_argument("uri")
+    args = parser.parse_args()
+
+    if args.command == "convert":
+        result = asyncio.run(convert_document(args.uri))
+    else:
+        result = asyncio.run(convert_with_ocr(args.uri))
+
+    if result.startswith("未找到") or result.startswith("OCR 模式"):
+        print(result, file=sys.stderr)
+        sys.exit(1)
+    print(result)
+
+
+if __name__ == "__main__":
+    _main()

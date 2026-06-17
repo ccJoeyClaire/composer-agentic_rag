@@ -117,3 +117,45 @@ async def tavily_extract(
             "format": format,
         },
     )
+
+
+def _main() -> None:
+    """MCP Tavily tool smoke test.
+
+    Run (from repo root):
+      python -m tools.MCPTool.tavily_tool search "query" [--max-results 5]
+      python -m tools.MCPTool.tavily_tool extract https://example.com
+    """
+    import argparse
+    import asyncio
+    import sys
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    parser = argparse.ArgumentParser(description="Tavily MCP tool CLI.")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    search_p = sub.add_parser("search")
+    search_p.add_argument("query")
+    search_p.add_argument("--max-results", type=int, default=5)
+
+    extract_p = sub.add_parser("extract")
+    extract_p.add_argument("urls", nargs="+")
+
+    args = parser.parse_args()
+    preflight = _tavily_preflight_error()
+    if preflight:
+        print(preflight, file=sys.stderr)
+        sys.exit(1)
+
+    if args.command == "search":
+        result = asyncio.run(tavily_search(args.query, max_results=args.max_results))
+    else:
+        result = asyncio.run(tavily_extract(args.urls))
+    print(result)
+
+
+if __name__ == "__main__":
+    _main()

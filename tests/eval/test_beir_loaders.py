@@ -13,7 +13,7 @@ from _eval_.data_preparing.beir import (
 )
 
 
-def test_iter_corpus_composes_title_and_body(tmp_path: Path) -> None:
+def test_iter_corpus_yields_body_and_title_separately(tmp_path: Path) -> None:
     corpus = tmp_path / "corpus.jsonl"
     corpus.write_text(
         json.dumps({"_id": "1", "title": "T1", "text": "body one"}),
@@ -21,7 +21,7 @@ def test_iter_corpus_composes_title_and_body(tmp_path: Path) -> None:
     )
     docs = list(iter_corpus(corpus))
     assert len(docs) == 1
-    assert docs[0] == CorpusDoc(doc_id="1", text="T1\n\nbody one", title="T1")
+    assert docs[0] == CorpusDoc(doc_id="1", text="body one", title="T1")
 
 
 def test_iter_corpus_keep_ids_stops_early(tmp_path: Path) -> None:

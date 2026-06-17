@@ -1,4 +1,8 @@
-"""Load typed pipeline settings from ``arg_config.yaml`` at the repo root."""
+"""Load typed pipeline settings from ``arg_config.yaml`` at the repo root.
+
+Run (from repo root):
+  python -m rag.config
+"""
 
 from __future__ import annotations
 
@@ -113,3 +117,29 @@ def get_rag_config() -> RagConfig:
         for profile_id, cfg in profiles_raw.items()
     }
     return RagConfig(chunker=chunker, retriever=retriever, profiles=profiles)
+
+
+def _demo_main() -> None:
+    """Offline smoke: print parsed chunker, retriever, and profile flags."""
+    cfg = get_rag_config()
+    print(f"Config path: {_CONFIG_PATH}")
+    print("\n=== chunker ===")
+    print(f"  chunk_tokens={cfg.chunker.chunk_tokens}")
+    print(f"  overlap_tokens={cfg.chunker.overlap_tokens}")
+    print(f"  break_similarity={cfg.chunker.break_similarity}")
+    print(f"  min_chunk_tokens={cfg.chunker.min_chunk_tokens}")
+    print("\n=== retriever ===")
+    print(f"  recall_n={cfg.retriever.recall_n}")
+    print(f"  top_k={cfg.retriever.top_k}")
+    print("\n=== profiles ===")
+    for profile_id, profile in sorted(cfg.profiles.items()):
+        flags = ", ".join(
+            key
+            for key in _PROFILE_BOOL_FIELDS
+            if getattr(profile, key)
+        )
+        print(f"  {profile_id}: {flags or '(all false)'}")
+
+
+if __name__ == "__main__":
+    _demo_main()

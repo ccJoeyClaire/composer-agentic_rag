@@ -12,10 +12,12 @@ Do not use upload_collection for normal indexing — it is for bulk migration.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import List, Optional
 
 from qdrant_client import AsyncQdrantClient, models
+from qdrant_client.http.exceptions import UnexpectedResponse
 
 from ..base import BaseVectorStore, Chunk
 from ..document_augmentation.parent_builder import CHUNK_ID_KEY
@@ -82,6 +84,7 @@ class QdrantVectorStore(BaseVectorStore):
         self.collection = collection
         self.vector_size = vector_size
         self.distance = distance
+        self._ensure_collection_lock = asyncio.Lock()
 
         if path:
             self.client = AsyncQdrantClient(
@@ -119,14 +122,20 @@ class QdrantVectorStore(BaseVectorStore):
             )
         self.vector_size = size
 
-        exists = await self.client.collection_exists(self.collection)
-        if exists: # collection 存在则不发生任何事情
-            return
+        # Parallel indexers can call ensure_collection concurrently; serialize
+        # create so only one task hits Qdrant and 409 races are harmless.
+        async with self._ensure_collection_lock:
+            if await self.client.collection_exists(self.collection):
+                return
 
-        await self.client.create_collection(
-            collection_name=self.collection,
-            vectors_config=models.VectorParams(size=size, distance=self.distance),
-        ) #如果 collection 不存在，创建新 collection
+            try:
+                await self.client.create_collection(
+                    collection_name=self.collection,
+                    vectors_config=models.VectorParams(size=size, distance=self.distance),
+                )
+            except UnexpectedResponse as exc:
+                if exc.status_code != 409:
+                    raise
 
     async def aadd_chunks(
         self,
@@ -241,3 +250,47 @@ class QdrantVectorStore(BaseVectorStore):
 
     async def aclose(self) -> None:
         await self.client.close()
+
+
+async def _demo_main() -> None:
+    """Integration harness: local path store, upsert, search, retrieve by id (synthetic vectors).
+
+    Run (from repo root):
+      python -m rag.store.qdrant_store
+    """
+    import tempfile
+    from pathlib import Path
+
+    from ..document_augmentation.parent_builder import CHUNK_ID_KEY
+
+    tmp = Path(tempfile.mkdtemp(prefix="qdrant_smoke_"))
+    store = QdrantVectorStore(collection="smoke_demo", path=str(tmp), vector_size=4)
+    await store.ensure_collection(vector_size=4)
+
+    chunks = [
+        Chunk(content="Paris is the capital of France.", metadata={CHUNK_ID_KEY: "doc::0", "source": "geo"}),
+        Chunk(content="Berlin is the capital of Germany.", metadata={CHUNK_ID_KEY: "doc::1", "source": "geo"}),
+        Chunk(content="Python is a programming language.", metadata={CHUNK_ID_KEY: "doc::2", "source": "tech"}),
+    ]
+    vectors = [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.9, 0.1, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+    ]
+    await store.aadd_chunks(chunks, vectors)
+
+    hits = await store.asearch([1.0, 0.0, 0.0, 0.0], top_k=2)
+    print(f"asearch top-2: {[h.content[:40] for h in hits]}")
+
+    by_id = await store.aretrieve_by_ids(["doc::1"])
+    print(f"aretrieve_by_ids doc::1: {by_id[0].content if by_id else '(missing)'}")
+
+    count = await store.acount_by_source("geo")
+    print(f"acount_by_source geo: {count}")
+    await store.aclose()
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(_demo_main())

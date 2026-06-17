@@ -1,3 +1,10 @@
+"""Factory wiring for :class:`RAGIndexer` and :class:`RAGRetriever`.
+
+Run (from repo root):
+  python -m rag.build index --collection demo --in-memory
+  python -m rag.build search --collection demo --in-memory "your query"
+"""
+
 from __future__ import annotations
 
 from typing import Annotated, Optional
@@ -197,3 +204,122 @@ def build_RAG_retriever(
         contextual_enricher=ContextualEnricher() if use_contextual else None,
         recall_n=resolved_recall_n,
     )
+
+
+_SAMPLE_DOC = """# RAG Demo
+
+Retrieval-augmented generation combines a retriever with a language model.
+
+## How it works
+
+The system retrieves relevant passages, then the LLM generates an answer grounded in them.
+
+## Paris
+
+Paris is the capital of France and a major European city.
+"""
+
+
+def _require_embedding_key() -> None:
+    import os
+    import sys
+
+    key = os.environ.get("EMBEDDING_API_KEY") or os.environ.get("LLM_API_KEY")
+    if not key:
+        print("Missing EMBEDDING_API_KEY or LLM_API_KEY in environment.", file=sys.stderr)
+        sys.exit(1)
+
+
+async def _run_index(args: object) -> None:
+    from pathlib import Path
+
+    text = _SAMPLE_DOC
+    source = "demo.md"
+    if getattr(args, "file", None):
+        path = Path(args.file)
+        text = path.read_text(encoding="utf-8")
+        source = path.name
+
+    indexer = build_RAG_indexer(
+        args.collection,
+        in_memory=args.in_memory,
+        use_token_chunker=args.token_chunker,
+        use_contextual=args.contextual,
+        use_small_to_big=args.small_to_big,
+    )
+    ok = await indexer.aindex(text, source=source)
+    print("Indexed OK" if ok else "Index failed")
+
+
+async def _run_search(args: object) -> None:
+    from .base import TRACE_HYDE_DOCUMENT_KEY, TRACE_RERANKED_KEY, TRACE_RETRIEVED_KEY, TRACE_WORKING_QUERY_KEY
+
+    retriever = build_RAG_retriever(
+        args.collection,
+        in_memory=args.in_memory,
+        use_reranker=args.rerank,
+        use_hyde=args.hyde,
+        use_contextual=args.contextual,
+        use_small_to_big=args.small_to_big,
+    )
+    trace = await retriever.aquery_trace(args.query, top_k=args.top_k)
+    print(f"Query: {args.query}")
+    print(f"Chunks returned: {len(trace.chunks)}")
+    for i, chunk in enumerate(trace.chunks):
+        preview = chunk.content[:120].replace("\n", " ")
+        score = chunk.score if chunk.score is not None else 0.0
+        print(f"  [{i}] score={score:.4f} | {preview}...")
+    meta = trace.metadata or {}
+    for key in (
+        TRACE_WORKING_QUERY_KEY,
+        TRACE_HYDE_DOCUMENT_KEY,
+        TRACE_RETRIEVED_KEY,
+        TRACE_RERANKED_KEY,
+    ):
+        if key in meta:
+            print(f"  trace.{key}={meta[key]}")
+
+
+def _main() -> None:
+    import argparse
+    import asyncio
+    import sys
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    parser = argparse.ArgumentParser(description="Index or search via RAG factory.")
+    parser.add_argument("--collection", default="demo", help="Qdrant collection name")
+    parser.add_argument("--in-memory", action="store_true", help="Use Qdrant :memory:")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    index_p = sub.add_parser("index", help="Index sample or file text")
+    index_p.add_argument("--file", help="Markdown/text file to index")
+    index_p.add_argument("--token-chunker", action="store_true")
+    index_p.add_argument("--contextual", action="store_true")
+    index_p.add_argument("--small-to-big", action="store_true")
+
+    search_p = sub.add_parser("search", help="Query indexed collection")
+    search_p.add_argument("query", help="Search query")
+    search_p.add_argument("--top-k", type=int, default=3)
+    search_p.add_argument("--hyde", action="store_true")
+    search_p.add_argument("--rerank", action="store_true")
+    search_p.add_argument("--contextual", action="store_true")
+    search_p.add_argument("--small-to-big", action="store_true")
+
+    args = parser.parse_args()
+    _require_embedding_key()
+
+    try:
+        if args.command == "index":
+            asyncio.run(_run_index(args))
+        else:
+            asyncio.run(_run_search(args))
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    _main()

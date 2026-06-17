@@ -1,5 +1,9 @@
 """
-该模块作用是对 markdown 文档进行智能分块
+Markdown-aware token-budget chunker.
+
+Run (from repo root):
+  python -m rag.chunker.md_chunker
+  python -m rag.chunker.md_chunker --file path/to/doc.md
 """
 from dataclasses import dataclass
 from typing_extensions import List, Dict, Optional
@@ -165,43 +169,58 @@ def _approx_token_len(text: str) -> int:
     return len(_enc.encode(text))
 
 
-if __name__ == "__main__":
+_DEFAULT_FIXTURE = """
+# 水果
+## 热带水果
+### 菠萝
+菠萝好吃
+## 温带水果
+### 苹果
+苹果也好吃
+"""
+
+
+def _demo_main() -> None:
+    import argparse
     import json
-    test_text = """
-# 水果
-## 热带水果
-### 菠萝
-菠萝好吃
-## 温带水果
-### 苹果
-苹果也好吃
-"""
+    from pathlib import Path
 
-    test_text2 = """
-# 水果
+    parser = argparse.ArgumentParser(description="Markdown chunker offline demo.")
+    parser.add_argument("--file", help="Markdown file to chunk")
+    parser.add_argument("--compare-splits", action="store_true", help="Compare paragraph split variants")
+    args = parser.parse_args()
 
-## 热带水果
+    if args.file:
+        text = Path(args.file).read_text(encoding="utf-8")
+        chunker = MarkdownChunker()
+        chunks = chunker.run(text)
+        token_lens = [_approx_token_len(c.content) for c in chunks]
+        print(f"MarkdownChunker: {len(chunks)} chunks from {args.file}")
+        if token_lens:
+            print(f"  token range: {min(token_lens)}..{max(token_lens)}")
+        for i, chunk in enumerate(chunks[:8]):
+            meta = chunk.metadata or {}
+            preview = chunk.content[:60].replace("\n", " ")
+            print(
+                f"  [{i}] heading={meta.get('heading_path', '-')} | {preview}..."
+            )
+        return
 
-### 菠萝
-
-菠萝好吃
-
-## 温带水果
-
-### 苹果
-
-苹果也好吃
-"""
-
-    split_text1 = _split_paragraphs_with_headings(test_text)
-    split_text2 = _split_paragraphs_with_headings(test_text2)
-
-    print("\n" + "-------" + "\n")
-    print(json.dumps(split_text1, indent=4, ensure_ascii=False))
-    print("\n" + "-------" + "\n")
-    print(json.dumps(split_text2, indent=4, ensure_ascii=False))
-
+    if args.compare_splits:
+        test_text2 = _DEFAULT_FIXTURE.replace("\n", "\n\n")
+        split_text1 = _split_paragraphs_with_headings(_DEFAULT_FIXTURE)
+        split_text2 = _split_paragraphs_with_headings(test_text2)
+        print(json.dumps(split_text1, indent=2, ensure_ascii=False))
+        print("---")
+        print(json.dumps(split_text2, indent=2, ensure_ascii=False))
+        return
 
     chunker = MarkdownChunker()
     chunks = chunker.run("# 标题\n\n内容")
-    assert isinstance(chunks[0], Chunk)  # 通过
+    assert isinstance(chunks[0], Chunk)
+    print(f"MarkdownChunker smoke: {len(chunks)} chunk(s)")
+    print(f"  content={chunks[0].content!r}")
+
+
+if __name__ == "__main__":
+    _demo_main()

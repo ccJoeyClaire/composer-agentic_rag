@@ -4,6 +4,9 @@ Context enrichment family (#4–6): headers, enriched embeddings, doc metadata.
 - #5 Contextual chunk headers: breadcrumb-style header from heading_path / source
 - #4 Context-enriched retrieval: embed header + body; store raw body in payload
 - #6 Document augmentation: doc_title, doc_keywords on each chunk metadata
+
+Run (from repo root):
+  python -m rag.document_augmentation.context_enricher
 """
 
 from __future__ import annotations
@@ -123,3 +126,32 @@ class ContextualEnricher(BaseContextualEnricher):
                 Chunk(content=display, metadata=meta, score=chunk.score)
             )
         return out
+
+
+async def _demo_main() -> None:
+    """Offline smoke: header builders and index/retrieve enrichment paths."""
+    sample = Chunk(
+        content="Paris is the capital of France.",
+        metadata={"heading_path": "Europe > France", "source": "geo.md"},
+    )
+    header = build_contextual_header(sample.metadata, source="geo.md")
+    embed_text = build_embed_text(header, sample.content)
+    print("=== build_contextual_header ===")
+    print(header)
+    print("\n=== build_embed_text (first 200 chars) ===")
+    print(embed_text[:200])
+
+    enricher = ContextualEnricher(prepend_on_retrieve=True)
+    indexed = await enricher.aenrich_for_index([sample], source="geo.md")
+    print("\n=== aenrich_for_index metadata keys ===")
+    print(sorted((indexed[0].metadata or {}).keys()))
+
+    retrieved = await enricher.aenrich_chunks(indexed)
+    print("\n=== aenrich_chunks (retrieve prepend) ===")
+    print(retrieved[0].content[:300])
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(_demo_main())

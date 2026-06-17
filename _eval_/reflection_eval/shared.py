@@ -1,15 +1,4 @@
-"""Per-pattern agent evaluation: run the agent, score its context and process.
-
-The bridge to the qrels-based framework is :class:`RecordingRetriever`: it wraps
-the real ``RAGRetriever``, is bound as the agent's ``RAG_search_tool`` backend,
-and records the doc ids returned by every retrieval the agent makes. After a run
-we know exactly which corpus docs entered the agent's context, so we can reuse
-:mod:`_eval_.scoring.metrics` to compute context Recall/MRR/nDCG against qrels — even
-across multiple RAG calls triggered by reflection (CRAG/Self-RAG) loops.
-
-Beyond context quality we record process signals (RAG/tool call counts, reflection
-verdicts) and, optionally, an LLM-judged answer correctness/grounding score.
-"""
+"""Shared machinery for reflection-pattern agent eval on pooled BEIR data."""
 
 from __future__ import annotations
 
@@ -27,6 +16,7 @@ from rag.core import RAGIndexer, RAGRetriever
 from tools.LocalTool.RAG_tool import bind_retriever
 from tools.tool_box import ToolBox
 
+from _eval_.agent_eval.judge import judge_answer
 from _eval_.config import AGENT_SYSTEM_PROMPT, AgentRunConfig
 from _eval_.data_preparing.beir import (
     CorpusDoc,
@@ -37,19 +27,21 @@ from _eval_.data_preparing.beir import (
     resolve_chunk_doc_id,
 )
 from _eval_.data_preparing.pooling import gold_docs
-from _eval_.agent_eval.judge import judge_answer
 from _eval_.scoring.metrics import mean_metrics, query_metrics
 
 _LOCAL_TOOL_PACKAGES = ("tools.LocalTool",)
-
-# Duplicated in rag_eval.pipeline (independent eval lines). Keep in sync;
-# parity tests: tests/eval/test_store_ops.py
+BASELINE_PATTERN = "react"
 
 
 async def drop_collection(store) -> None:
     """Delete the backing collection when it exists."""
     if await store.client.collection_exists(store.collection):
         await store.client.delete_collection(store.collection)
+
+
+async def collection_exists(store) -> bool:
+    """Return whether the store's backing collection is already present."""
+    return await store.client.collection_exists(store.collection)
 
 
 async def index_doc_list(
@@ -78,7 +70,7 @@ class AgentQueryScore(TypedDict):
     signals: dict[str, object]
 
 
-@dataclass
+@dataclass(frozen=True)
 class AgentPatternResult:
     """Aggregate outcome for one agent pattern over the evaluated queries."""
 
@@ -126,14 +118,14 @@ class RecordingRetriever:
         return len(self._calls)
 
 
-def _final_answer(messages: list[BaseMessage]) -> str:
+def final_answer(messages: list[BaseMessage]) -> str:
     for message in reversed(messages):
         if isinstance(message, AIMessage) and (message.content or "").strip():
             return str(message.content)
     return ""
 
 
-def _process_signals(messages: list[BaseMessage], metadata: dict) -> dict[str, object]:
+def process_signals(messages: list[BaseMessage], metadata: dict) -> dict[str, object]:
     """Count turns/tool calls and surface reflection verdicts from metadata."""
     num_turns = 0
     num_tool_calls = 0
@@ -158,7 +150,7 @@ def _process_signals(messages: list[BaseMessage], metadata: dict) -> dict[str, o
     }
 
 
-async def _score_one_query(
+async def score_one_query(
     graph,
     recorder: RecordingRetriever,
     query: EvalQuery,
@@ -181,7 +173,7 @@ async def _score_one_query(
     messages: list[BaseMessage] = state["messages"]
     metadata = dict(state.get("metadata") or {})
 
-    answer = _final_answer(messages)
+    answer = final_answer(messages)
     gold = gold_docs(relevance, cfg.pool_spec.rel_threshold)
     ranked = recorder.retrieved_doc_ids()
 
@@ -191,7 +183,7 @@ async def _score_one_query(
             ranked, relevance, gold, k_values=cfg.k_values, mrr_k=cfg.max_k
         ).items()
     }
-    signals = _process_signals(messages, metadata)
+    signals = process_signals(messages, metadata)
     metrics["ctx_docs"] = float(len(ranked))
     metrics["num_rag_calls"] = float(signals["num_rag_calls"])
     metrics["num_tool_calls"] = float(signals["num_tool_calls"])
@@ -236,7 +228,7 @@ async def evaluate_pattern(
 
     per_query: list[AgentQueryScore] = []
     for qid in query_ids:
-        score = await _score_one_query(
+        score = await score_one_query(
             graph,
             recorder,
             queries[qid],
@@ -254,3 +246,20 @@ async def evaluate_pattern(
         mean_metrics=mean_metrics([q["metrics"] for q in per_query]),
         per_query=per_query,
     )
+
+
+def signal_rate(per_query: list[AgentQueryScore], key: str, value: object) -> float:
+    """Fraction of queries where ``signals[key]`` equals ``value``."""
+    if not per_query:
+        return 0.0
+    hits = sum(1 for row in per_query if row["signals"].get(key) == value)
+    return hits / len(per_query)
+
+
+def metric_deltas(
+    pattern_metrics: dict[str, float],
+    baseline_metrics: dict[str, float],
+    keys: tuple[str, ...],
+) -> dict[str, float]:
+    """``pattern - baseline`` for each mean metric key."""
+    return {f"delta_{key}": pattern_metrics.get(key, 0.0) - baseline_metrics.get(key, 0.0) for key in keys}

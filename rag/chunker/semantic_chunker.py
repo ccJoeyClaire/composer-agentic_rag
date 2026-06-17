@@ -6,6 +6,10 @@ Approach:
 2) Embed each paragraph via :class:`ChunkerEmbeddingClient`
 3) Build chunks under a token budget, breaking when adjacent paragraph cosine
    similarity falls below ``break_similarity`` (after ``min_chunk_tokens``).
+
+Run (from repo root):
+  python -m rag.chunker.semantic_chunker
+  python -m rag.chunker.semantic_chunker --offline
 """
 
 from __future__ import annotations
@@ -224,3 +228,62 @@ def _chunk_paragraphs_semantic(
         flush(reason="end_of_text")
 
     return chunks
+
+
+_SAMPLE_TEXT = (
+    "# RAG\n\n"
+    "Retrieval-augmented generation combines a retriever with an LLM.\n\n"
+    "## Chunking\n\n"
+    "Semantic chunking splits text at low-similarity paragraph boundaries.\n\n"
+    "## Retrieval\n\n"
+    "The retriever fetches relevant passages at query time."
+)
+
+
+class _OfflineEmbedder:
+    """Deterministic fake vectors for offline chunk-boundary smoke tests."""
+
+    def embed_texts(self, texts: List[str]) -> List[List[float]]:
+        vectors: List[List[float]] = []
+        for i, text in enumerate(texts):
+            base = float((hash(text) % 1000) / 1000.0)
+            vectors.append([base, float(i % 5) / 5.0, 1.0 - base, 0.5])
+        return vectors
+
+
+def _demo_main() -> None:
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(description="Semantic chunker demo.")
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="Use mock embeddings (no API key)",
+    )
+    args = parser.parse_args()
+
+    if args.offline:
+        chunker = SemanticChunker(
+            chunk_tokens=80,
+            overlap_tokens=10,
+            embedding_client=_OfflineEmbedder(),
+        )
+    else:
+        try:
+            chunker = SemanticChunker(chunk_tokens=120, overlap_tokens=16)
+        except ValueError as exc:
+            print(exc, file=sys.stderr)
+            print("Tip: pass --offline for API-free smoke test.", file=sys.stderr)
+            sys.exit(1)
+
+    chunks = chunker.run(_SAMPLE_TEXT)
+    print(f"SemanticChunker: {len(chunks)} chunks (offline={args.offline})")
+    for i, chunk in enumerate(chunks):
+        reason = (chunk.metadata or {}).get("boundary_reason", "?")
+        preview = chunk.content[:70].replace("\n", " ")
+        print(f"  [{i}] {reason} | {preview}...")
+
+
+if __name__ == "__main__":
+    _demo_main()

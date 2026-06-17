@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+"""LangGraph ReAct agent factory with optional CRAG / Self-RAG / feedback patterns.
+
+Run (from repo root):
+  python -m agent.graph --pattern react --query "Hello"
+  python -m agent.graph --pattern react_crag --query "What is RAG?" --in-memory --index
+"""
+
 from dataclasses import dataclass
 from functools import partial
 from typing import Literal
@@ -183,7 +190,6 @@ def build_ReAct_agent(
             "crag_eval",
             build_crag_node(
                 CragConfig(
-                    llm=config.llm,
                     max_rag_attempts=config.max_rag_attempts,
                     tool_box=tool_box,
                 )
@@ -248,3 +254,79 @@ def build_agent(
         enable_self_rag=use_self_rag,
         enable_feedback=use_feedback,
     )
+
+
+_SAMPLE_INDEX_DOC = (
+    "# RAG\n\n"
+    "Retrieval-augmented generation combines retrieval with language models.\n\n"
+    "The retriever fetches relevant passages before the LLM answers."
+)
+
+
+async def _run_agent_demo(args: object) -> None:
+    from langchain_core.messages import HumanMessage
+
+    from tools.LocalTool.RAG_tool import RAG_index_tool, bind_rag_context
+
+    bind_rag_context(collection=args.collection, in_memory=args.in_memory)
+
+    if getattr(args, "index", False):
+        print(RAG_index_tool(text=_SAMPLE_INDEX_DOC, source="agent_demo.md"))
+
+    llm = LLMClient()
+    tool_box = ToolBox()
+    graph = build_agent(
+        AgentConfig(llm=llm, tool_box=tool_box),
+        pattern=args.pattern,
+    )
+    result = await graph.ainvoke(
+        {"messages": [HumanMessage(content=args.query)], "metadata": {}}
+    )
+    last = result["messages"][-1]
+    print(f"\n=== final message ({args.pattern}) ===")
+    last.pretty_print()
+    meta = result.get("metadata") or {}
+    if meta:
+        print(f"metadata keys: {sorted(meta.keys())}")
+
+
+def _main() -> None:
+    import argparse
+    import asyncio
+    import os
+    import sys
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    parser = argparse.ArgumentParser(description="Single-turn agent smoke test.")
+    parser.add_argument("--pattern", choices=SUPPORTED_PATTERNS, default="react")
+    parser.add_argument("--query", default="What is retrieval-augmented generation?")
+    parser.add_argument("--collection", default="agent_demo")
+    parser.add_argument("--in-memory", action="store_true")
+    parser.add_argument(
+        "--index",
+        action="store_true",
+        help="Index sample doc via RAG_index_tool before query",
+    )
+    args = parser.parse_args()
+
+    if not os.environ.get("LLM_API_KEY"):
+        print("Missing LLM_API_KEY.", file=sys.stderr)
+        sys.exit(1)
+    if args.index and not (
+        os.environ.get("EMBEDDING_API_KEY") or os.environ.get("LLM_API_KEY")
+    ):
+        print("Missing EMBEDDING_API_KEY or LLM_API_KEY for --index.", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        asyncio.run(_run_agent_demo(args))
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    _main()

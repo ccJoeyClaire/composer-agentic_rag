@@ -4,6 +4,10 @@ Predict questions per chunk at index time (#6 document augmentation).
 Uses an LLM to generate questions each chunk can answer; stores them on
 ``metadata["predicted_questions"]`` and optionally appends them to ``embed_text``
 so user queries align better with indexed vectors.
+
+Run (from repo root):
+  python -m rag.document_augmentation.predict_question
+  python -m rag.document_augmentation.predict_question --live
 """
 
 from __future__ import annotations
@@ -211,3 +215,51 @@ class PredictQuestionEnricher(BaseContextualEnricher):
 
     async def aenrich_chunks(self, chunks: List[Chunk]) -> List[Chunk]:
         return list(chunks)
+
+
+async def _demo_main() -> None:
+    """Offline parse demo or live LLM enrichment."""
+    import argparse
+    import os
+    import sys
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    parser = argparse.ArgumentParser(description="Predict-question enrichment demo.")
+    parser.add_argument("--live", action="store_true", help="Call LLM for one chunk")
+    args = parser.parse_args()
+
+    fixture = '{"questions": ["What is RAG?", "How does retrieval help LLMs?"]}'
+    parsed = parse_predicted_questions(fixture)
+    print("=== parse_predicted_questions (offline) ===")
+    print(parsed)
+
+    if not args.live:
+        return
+
+    if not (os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY")):
+        print("Missing LLM_API_KEY for --live.", file=sys.stderr)
+        sys.exit(1)
+
+    chunk = Chunk(
+        content="RAG retrieves documents before the LLM answers.",
+        metadata={"heading_path": "RAG > Overview"},
+    )
+    enricher = PredictQuestionEnricher(num_questions=2)
+    enriched = await enricher.aenrich_for_index([chunk], source="demo.md")
+    meta = enriched[0].metadata or {}
+    print("\n=== PredictQuestionEnricher.aenrich_for_index ===")
+    print(f"  questions={meta.get(PREDICTED_QUESTIONS_KEY)}")
+    print(f"  embed_text preview={str(meta.get('embed_text', ''))[:200]}...")
+
+
+def _main() -> None:
+    import asyncio
+
+    asyncio.run(_demo_main())
+
+
+if __name__ == "__main__":
+    _main()

@@ -14,7 +14,9 @@ from agent.subgraph.CRAG import (
     build_crag_subgraph,
     compute_verdict,
     decide_action,
+    resolve_score_fn,
 )
+from agent.subgraph.score_fn import build_cross_encoder_score_fn
 
 pytestmark = pytest.mark.unit
 
@@ -100,6 +102,28 @@ def test_decide_action():
     assert decide_action("incorrect", attempt=2, max_attempts=2, web_enabled=False, web_used=False) == "degrade"
     assert decide_action("incorrect", attempt=2, max_attempts=2, web_enabled=True, web_used=False) == "web_fallback"
     assert decide_action("incorrect", attempt=2, max_attempts=2, web_enabled=True, web_used=True) == "degrade"
+
+
+def test_resolve_score_fn_prefers_explicit_score_fn():
+    explicit = build_cross_encoder_score_fn()
+    resolved = resolve_score_fn(CragConfig(score_fn=explicit))
+    assert resolved is explicit
+
+
+def test_resolve_score_fn_uses_llm_when_provided():
+    class _FakeLLM:
+        pass
+
+    resolved = resolve_score_fn(CragConfig(llm=_FakeLLM()))  # type: ignore[arg-type]
+    assert resolved is not None
+    assert resolved is not build_cross_encoder_score_fn()
+
+
+def test_resolve_score_fn_defaults_to_cross_encoder():
+    resolved = resolve_score_fn(CragConfig())
+    default = build_cross_encoder_score_fn()
+    assert resolved is not default
+    assert resolved is not None
 
 
 # -- subgraph end-to-end (private CragState) --------------------------------

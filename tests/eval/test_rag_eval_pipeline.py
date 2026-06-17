@@ -7,14 +7,17 @@ from unittest.mock import AsyncMock
 import pytest
 
 from _eval_.config import RunConfig
-from _eval_.data_preparing.beir import EvalQuery, SOURCE_META_KEY
+from _eval_.data_preparing.beir import DOC_ID_META_KEY, EvalQuery, SOURCE_META_KEY
 from _eval_.data_preparing.pooling import PoolSpec
 from _eval_.rag_eval.pipeline import ranked_doc_ids, score_queries
 from rag.base import Chunk
 
 
 def _chunk(doc_id: str) -> Chunk:
-    return Chunk(content=f"text-{doc_id}", metadata={SOURCE_META_KEY: doc_id})
+    return Chunk(
+        content=f"text-{doc_id}",
+        metadata={DOC_ID_META_KEY: doc_id, SOURCE_META_KEY: f"title-{doc_id}"},
+    )
 
 
 def test_ranked_doc_ids_dedupes_preserving_order() -> None:
@@ -25,6 +28,11 @@ def test_ranked_doc_ids_dedupes_preserving_order() -> None:
 def test_ranked_doc_ids_skips_missing_source() -> None:
     chunks = [Chunk(content="no meta", metadata={}), _chunk("x")]
     assert ranked_doc_ids(chunks) == ["x"]
+
+
+def test_ranked_doc_ids_falls_back_to_source_metadata() -> None:
+    chunks = [Chunk(content="legacy", metadata={SOURCE_META_KEY: "legacy-id"})]
+    assert ranked_doc_ids(chunks) == ["legacy-id"]
 
 
 @pytest.mark.asyncio

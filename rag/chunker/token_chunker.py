@@ -1,4 +1,8 @@
-"""Fixed-size token window chunker (no markdown or semantic boundaries)."""
+"""Fixed-size token window chunker (no markdown or semantic boundaries).
+
+Run (from repo root):
+  python -m rag.chunker.token_chunker
+"""
 
 from __future__ import annotations
 
@@ -75,3 +79,38 @@ class TokenChunker(BaseChunker):
             chunk_index += 1
 
         return chunks
+
+
+_SAMPLE_TEXT = (
+    "# Fruits\n\n"
+    "Pineapple is a tropical fruit with a spiky exterior.\n\n"
+    "## Tropical\n\n"
+    "Mango grows in warm climates and is very sweet.\n\n"
+    "## Temperate\n\n"
+    "Apple is a common temperate fruit eaten worldwide."
+)
+
+
+def _demo_main() -> None:
+    """Offline smoke: report chunk count, token span, and overlap."""
+    chunker = TokenChunker()
+    chunks = chunker.run(_SAMPLE_TEXT)
+    token_lens = [_token_len(c.content) for c in chunks]
+    print(f"TokenChunker: {len(chunks)} chunks")
+    print(
+        f"  config: chunk_tokens={chunker.chunk_tokens}, "
+        f"overlap_tokens={chunker.overlap_tokens}"
+    )
+    if token_lens:
+        print(f"  token range: {min(token_lens)}..{max(token_lens)}")
+    for i, chunk in enumerate(chunks[:4]):
+        meta = chunk.metadata or {}
+        preview = chunk.content[:60].replace("\n", " ")
+        print(
+            f"  [{i}] tokens={token_lens[i]} chars={meta.get('start')}..{meta.get('end')} "
+            f"| {preview}..."
+        )
+
+
+if __name__ == "__main__":
+    _demo_main()
