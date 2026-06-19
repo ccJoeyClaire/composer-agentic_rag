@@ -59,6 +59,41 @@ class InMemoryVectorStore(BaseVectorStore):
             if (chunk.metadata or {}).get("source") == source
         )
 
+    async def alist_chunks(
+        self,
+        *,
+        limit: int = 20,
+        offset: str | None = None,
+        doc_id: str | None = None,
+        source: str | None = None,
+        with_vectors: bool = False,
+    ) -> tuple[list[Chunk], str | None]:
+        del with_vectors  # in-memory store has no vector export
+        if limit <= 0:
+            return [], None
+
+        filtered = [
+            chunk
+            for chunk, _ in self._records
+            if (not doc_id or (chunk.metadata or {}).get("doc_id") == doc_id)
+            and (not source or (chunk.metadata or {}).get("source") == source)
+        ]
+
+        start = 0
+        if offset is not None:
+            try:
+                start = int(offset)
+            except ValueError:
+                start = 0
+
+        page = filtered[start : start + limit]
+        next_start = start + limit
+        next_offset = str(next_start) if next_start < len(filtered) else None
+        return [
+            Chunk(content=chunk.content, metadata=dict(chunk.metadata or {}), score=chunk.score)
+            for chunk in page
+        ], next_offset
+
     async def aretrieve_by_ids(self, chunk_ids: List[str]) -> List[Chunk]:
         by_id: Dict[str, Chunk] = {}
         for chunk, _ in self._records:

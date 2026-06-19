@@ -19,7 +19,14 @@ from _eval_.data_preparing.pooling import build_pool, queries_with_gold
 
 @dataclass(frozen=True)
 class PreparedEvalData:
-    """Everything downstream eval pipelines need after one prepare pass."""
+    """Everything downstream eval pipelines need after one prepare pass.
+
+    Attributes:
+        pool: Corpus docs materialized for indexing (pooled subset).
+        queries: ``{query_id: EvalQuery}`` from ``queries.jsonl``.
+        qrels: Gold labels as ``{query_id: {doc_id: relevance_score}}``.
+        query_ids: Evaluable query ids (gold under threshold, present in queries).
+    """
 
     pool: list[CorpusDoc]
     queries: dict[QueryId, EvalQuery]

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from typing import Optional
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional, TypedDict
 
 from llm.client import LLMClient
 
@@ -12,11 +16,77 @@ No titles, labels, quotes, or meta commentary."""
 
 DEFAULT_USER_TEMPLATE = "Question:\n{query}\n\nHypothetical passage:"
 
+HYDE_LOG_ENV = "HYDE_LOG"
+HYDE_LOG_PATH_ENV = "HYDE_LOG_PATH"
+HYDE_LOG_PROFILE_ENV = "HYDE_LOG_PROFILE"
+HYDE_LOG_COLLECTION_ENV = "HYDE_LOG_COLLECTION"
+
+
+class HydeLogEntry(TypedDict):
+    timestamp_utc: str
+    query: str
+    hyde_document: str
+    profile: str | None
+    collection: str | None
+
+
+def _default_hyde_log_path() -> Path:
+    """Default JSONL path relative to repo root (``_eval_/hyde_log/hyde.jsonl``)."""
+    repo_root = Path(__file__).resolve().parents[2]
+    return repo_root / "_eval_" / "hyde_log" / "hyde.jsonl"
+
+
+def _hyde_logging_enabled() -> bool:
+    if os.environ.get(HYDE_LOG_ENV, "1") == "0":
+        return False
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return False
+    return True
+
+
+def _hyde_log_path() -> Path:
+    raw = os.environ.get(HYDE_LOG_PATH_ENV)
+    if raw:
+        path = Path(raw)
+        return path if path.is_absolute() else Path.cwd() / path
+    return _default_hyde_log_path()
+
+
+def hyde_log_path() -> Path:
+    return _hyde_log_path()
+
+
+def append_hyde_log_entry(
+    *,
+    query: str,
+    hyde_document: str,
+    profile: str | None = None,
+    collection: str | None = None,
+) -> None:
+    """Append one HyDE transform record as JSONL (no-op when logging disabled)."""
+    if not _hyde_logging_enabled():
+        return
+
+    entry: HydeLogEntry = {
+        "timestamp_utc": datetime.now(tz=timezone.utc).isoformat(),
+        "query": query,
+        "hyde_document": hyde_document,
+        "profile": profile or os.environ.get(HYDE_LOG_PROFILE_ENV),
+        "collection": collection or os.environ.get(HYDE_LOG_COLLECTION_ENV),
+    }
+    path = _hyde_log_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
 
 class HyDETransformer(BaseQueryTransformer):
     """
     HyDE (#15): LLM generates a hypothetical answer; retriever embeds that text
     instead of the raw query (pairs with context-enriched index embeddings).
+
+    Successful transforms append one JSONL line when ``HYDE_LOG`` is not ``0``
+    (disabled automatically under pytest). Override path via ``HYDE_LOG_PATH``.
     """
 
     def __init__(
@@ -53,6 +123,7 @@ class HyDETransformer(BaseQueryTransformer):
             return query
 
         self.last_document = doc
+        append_hyde_log_entry(query=query, hyde_document=doc)
         return doc
 
 
@@ -63,7 +134,6 @@ async def _demo_main() -> None:
       python -m rag.query_transformer.hyde
     """
     import argparse
-    import os
     import sys
 
     from dotenv import load_dotenv

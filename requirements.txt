@@ -27,6 +27,13 @@ sentence-transformers>=2.2.0  # cross-encoder reranker (#8)
 # --- Testing ---
 pytest>=8.0.0
 pytest-asyncio>=0.24.0
+tqdm>=4.66.0
+
+# --- Eval analysis (notebooks: _eval_/analysis/visual/) ---
+pandas>=2.0.0
+matplotlib>=3.7.0
+seaborn>=0.13.0
+scipy>=1.11.0
 
 # --- MCP tools (optional servers: markitdown-mcp, bocha-search-mcp) ---
 mcp>=1.6.0

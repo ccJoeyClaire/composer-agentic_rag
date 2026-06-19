@@ -57,6 +57,12 @@ DATASETS: dict[str, DatasetSpec] = {
         queries="msmarco/queries.jsonl",
         qrels="msmarco/qrels/dev.tsv",
     ),
+    "nfcorpus": DatasetSpec(
+        dataset_id="nfcorpus",
+        corpus="nfcorpus/corpus.jsonl",
+        queries="nfcorpus/queries.jsonl",
+        qrels="nfcorpus/qrels/test.tsv",
+    ),
 }
 
 

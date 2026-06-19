@@ -1,16 +1,29 @@
-dataset: trec-covid
+dataset: nfcorpus
+
+# NFCorpus profile ablation (see arg_config.yaml for flag definitions).
+# Phase 1 (no LLM index): token … baseline_s2b_hyde
+# Phase 2 (LLM index): baseline_predict_q, full
 profiles:
+  - token
+  - semantic
+  - semantic_rerank
   - baseline
+  - baseline_s2b
+  - baseline_hyde
+  - baseline_s2b_hyde
+  - baseline_predict_q
+  - full
 
 query_limit: 50
 # true: drop + re-index each run. false: reuse collection when it already exists.
-recreate: false
-index_concurrency: 24
-predict_question_max_concurrency: 15
+recreate: true
+# DashScope / Aliyun embedding RPM is low; keep doc-level concurrency modest.
+index_concurrency: 4
+predict_question_max_concurrency: 4
 
 k_values: [3, 10, 20]
 chunk_fetch_multiplier: 4
 
 pool:
   rel_threshold: 1
-  max_distractors_per_query: null
+  max_distractors_per_query: 100

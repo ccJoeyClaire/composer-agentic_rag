@@ -11,15 +11,58 @@ retriever:
   top_k: 3
 
 profiles:
-  baseline: {}
-  token: { use_token_chunker: true }
-  contextual: { use_contextual: true }
-  s2b: { use_small_to_big: true }
-  predict_q: { use_predict_questions: true }
-  hyde: { use_hyde: true }
-  reranker: { use_reranker: true }
-  full:
+  # ── NFCorpus ablation: controls ──
+  token:
+    use_token_chunker: true
+
+  semantic: {}
+
+  semantic_rerank:
+    use_reranker: true
+
+  # ── Production baseline: semantic + contextual + reranker ──
+  baseline:
     use_contextual: true
+    use_reranker: true
+
+  # ── baseline + single knob (marginal effect) ──
+  baseline_s2b:
+    use_contextual: true
+    use_reranker: true
+    use_small_to_big: true
+
+  baseline_hyde:
+    use_contextual: true
+    use_reranker: true
+    use_hyde: true
+
+  baseline_predict_q:
+    use_contextual: true
+    use_reranker: true
+    use_predict_questions: true
+
+  # ── baseline + stacked knobs ──
+  baseline_s2b_hyde:
+    use_contextual: true
+    use_reranker: true
     use_small_to_big: true
     use_hyde: true
+
+  full:
+    use_contextual: true
+    use_reranker: true
+    use_small_to_big: true
+    use_hyde: true
+    use_predict_questions: true
+
+  # ── Legacy single-knob profiles (agent / reflection eval) ──
+  contextual:
+    use_contextual: true
+  s2b:
+    use_small_to_big: true
+  predict_q:
+    use_predict_questions: true
+  hyde:
+    use_hyde: true
+  reranker:
     use_reranker: true

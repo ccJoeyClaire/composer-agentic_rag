@@ -25,6 +25,8 @@ from ..document_augmentation.parent_builder import CHUNK_ID_KEY
 # Payload keys — keep stable so search can rebuild Chunk objects.
 _PAYLOAD_CONTENT = "content"
 _PAYLOAD_METADATA = "metadata"
+_PAYLOAD_DOC_ID = "doc_id"
+_PAYLOAD_SOURCE = "source"
 
 
 # 以下是两个转换接口
@@ -203,7 +205,7 @@ class QdrantVectorStore(BaseVectorStore):
         source_filter = models.Filter(
             must=[
                 models.FieldCondition(
-                    key=f"{_PAYLOAD_METADATA}.source",
+                    key=f"{_PAYLOAD_METADATA}.{_PAYLOAD_SOURCE}",
                     match=models.MatchValue(value=source),
                 )
             ]
@@ -224,6 +226,60 @@ class QdrantVectorStore(BaseVectorStore):
             if offset is None:
                 break
         return count
+
+    def _scroll_filter(
+        self,
+        *,
+        doc_id: str | None = None,
+        source: str | None = None,
+    ) -> models.Filter | None:
+        conditions: list[models.FieldCondition] = []
+        if doc_id:
+            conditions.append(
+                models.FieldCondition(
+                    key=f"{_PAYLOAD_METADATA}.{_PAYLOAD_DOC_ID}",
+                    match=models.MatchValue(value=doc_id),
+                )
+            )
+        if source:
+            conditions.append(
+                models.FieldCondition(
+                    key=f"{_PAYLOAD_METADATA}.{_PAYLOAD_SOURCE}",
+                    match=models.MatchValue(value=source),
+                )
+            )
+        if not conditions:
+            return None
+        return models.Filter(must=conditions)
+
+    async def alist_chunks(
+        self,
+        *,
+        limit: int = 20,
+        offset: str | None = None,
+        doc_id: str | None = None,
+        source: str | None = None,
+        with_vectors: bool = False,
+    ) -> tuple[list[Chunk], str | None]:
+        """Scroll collection payload; optional filter on metadata.doc_id or metadata.source."""
+        if limit <= 0:
+            return [], None
+
+        if not await self.client.collection_exists(self.collection):
+            return [], None
+
+        scroll_filter = self._scroll_filter(doc_id=doc_id, source=source)
+        records, next_offset = await self.client.scroll(
+            collection_name=self.collection,
+            scroll_filter=scroll_filter,
+            limit=limit,
+            offset=offset,
+            with_payload=True,
+            with_vectors=with_vectors,
+        )
+        chunks = [_payload_to_chunk(record.payload or {}) for record in records]
+        next_page = str(next_offset) if next_offset is not None else None
+        return chunks, next_page
 
     async def aretrieve_by_ids(self, chunk_ids: List[str]) -> List[Chunk]:
         if not chunk_ids:

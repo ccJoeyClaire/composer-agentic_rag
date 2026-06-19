@@ -146,6 +146,20 @@ class BaseVectorStore(ABC):
             f"{type(self).__name__} does not support acount_by_source"
         )
 
+    async def alist_chunks(
+        self,
+        *,
+        limit: int = 20,
+        offset: str | None = None,
+        doc_id: str | None = None,
+        source: str | None = None,
+        with_vectors: bool = False,
+    ) -> tuple[list[Chunk], str | None]:
+        """Scroll stored chunks with optional metadata filters. Override in concrete stores."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support alist_chunks"
+        )
+
 
 class BaseRetriever(ABC):
     @abstractmethod

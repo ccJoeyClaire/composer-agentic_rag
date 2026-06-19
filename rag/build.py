@@ -7,11 +7,13 @@ Run (from repo root):
 
 from __future__ import annotations
 
+import argparse
+from dataclasses import dataclass
 from typing import Annotated, Optional
 
 from pydantic import Field
 
-from .base import BaseChunker
+from .base import BaseChunker, RagResult
 from .config import get_rag_config
 from .core import RAGIndexer, RAGRetriever
 from .embedder.openai_embedder import OpenAIEmbedder
@@ -220,6 +222,32 @@ Paris is the capital of France and a major European city.
 """
 
 
+@dataclass(frozen=True)
+class BuildIndexRequest:
+    """Inputs for :func:`run_build_index`."""
+
+    collection: str
+    in_memory: bool = False
+    file: str | None = None
+    use_token_chunker: bool = False
+    use_contextual: bool = False
+    use_small_to_big: bool = False
+
+
+@dataclass(frozen=True)
+class BuildSearchRequest:
+    """Inputs for :func:`run_build_search`."""
+
+    collection: str
+    query: str
+    in_memory: bool = False
+    top_k: int = 3
+    use_hyde: bool = False
+    use_reranker: bool = False
+    use_contextual: bool = False
+    use_small_to_big: bool = False
+
+
 def _require_embedding_key() -> None:
     import os
     import sys
@@ -230,40 +258,50 @@ def _require_embedding_key() -> None:
         sys.exit(1)
 
 
-async def _run_index(args: object) -> None:
+async def run_build_index(request: BuildIndexRequest) -> bool:
+    """Index sample or file text into a collection (demo / smoke helper)."""
     from pathlib import Path
 
     text = _SAMPLE_DOC
     source = "demo.md"
-    if getattr(args, "file", None):
-        path = Path(args.file)
+    if request.file:
+        path = Path(request.file)
         text = path.read_text(encoding="utf-8")
         source = path.name
 
     indexer = build_RAG_indexer(
-        args.collection,
-        in_memory=args.in_memory,
-        use_token_chunker=args.token_chunker,
-        use_contextual=args.contextual,
-        use_small_to_big=args.small_to_big,
+        request.collection,
+        in_memory=request.in_memory,
+        use_token_chunker=request.use_token_chunker,
+        use_contextual=request.use_contextual,
+        use_small_to_big=request.use_small_to_big,
     )
-    ok = await indexer.aindex(text, source=source)
-    print("Indexed OK" if ok else "Index failed")
+    return await indexer.aindex(text, source=source)
 
 
-async def _run_search(args: object) -> None:
-    from .base import TRACE_HYDE_DOCUMENT_KEY, TRACE_RERANKED_KEY, TRACE_RETRIEVED_KEY, TRACE_WORKING_QUERY_KEY
-
+async def run_build_search(request: BuildSearchRequest) -> RagResult:
+    """Query an indexed collection and return the full trace result."""
     retriever = build_RAG_retriever(
-        args.collection,
-        in_memory=args.in_memory,
-        use_reranker=args.rerank,
-        use_hyde=args.hyde,
-        use_contextual=args.contextual,
-        use_small_to_big=args.small_to_big,
+        request.collection,
+        in_memory=request.in_memory,
+        use_reranker=request.use_reranker,
+        use_hyde=request.use_hyde,
+        use_contextual=request.use_contextual,
+        use_small_to_big=request.use_small_to_big,
     )
-    trace = await retriever.aquery_trace(args.query, top_k=args.top_k)
-    print(f"Query: {args.query}")
+    return await retriever.aquery_trace(request.query, top_k=request.top_k)
+
+
+def print_build_search_result(request: BuildSearchRequest, trace: RagResult) -> None:
+    """Pretty-print a search trace (CLI helper)."""
+    from .base import (
+        TRACE_HYDE_DOCUMENT_KEY,
+        TRACE_RERANKED_KEY,
+        TRACE_RETRIEVED_KEY,
+        TRACE_WORKING_QUERY_KEY,
+    )
+
+    print(f"Query: {request.query}")
     print(f"Chunks returned: {len(trace.chunks)}")
     for i, chunk in enumerate(trace.chunks):
         preview = chunk.content[:120].replace("\n", " ")
@@ -278,6 +316,32 @@ async def _run_search(args: object) -> None:
     ):
         if key in meta:
             print(f"  trace.{key}={meta[key]}")
+
+
+def build_index_request_from_cli(args: argparse.Namespace) -> BuildIndexRequest:
+    """Map ``index`` subparser args to :class:`BuildIndexRequest`."""
+    return BuildIndexRequest(
+        collection=args.collection,
+        in_memory=args.in_memory,
+        file=args.file,
+        use_token_chunker=args.token_chunker,
+        use_contextual=args.contextual,
+        use_small_to_big=args.small_to_big,
+    )
+
+
+def build_search_request_from_cli(args: argparse.Namespace) -> BuildSearchRequest:
+    """Map ``search`` subparser args to :class:`BuildSearchRequest`."""
+    return BuildSearchRequest(
+        collection=args.collection,
+        query=args.query,
+        in_memory=args.in_memory,
+        top_k=args.top_k,
+        use_hyde=args.hyde,
+        use_reranker=args.rerank,
+        use_contextual=args.contextual,
+        use_small_to_big=args.small_to_big,
+    )
 
 
 def _main() -> None:
@@ -313,9 +377,13 @@ def _main() -> None:
 
     try:
         if args.command == "index":
-            asyncio.run(_run_index(args))
+            request = build_index_request_from_cli(args)
+            ok = asyncio.run(run_build_index(request))
+            print("Indexed OK" if ok else "Index failed")
         else:
-            asyncio.run(_run_search(args))
+            request = build_search_request_from_cli(args)
+            trace = asyncio.run(run_build_search(request))
+            print_build_search_result(request, trace)
     except ValueError as exc:
         print(exc, file=sys.stderr)
         sys.exit(1)

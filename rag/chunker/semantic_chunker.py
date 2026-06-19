@@ -20,7 +20,7 @@ import tiktoken
 
 from ..base import BaseChunker, Chunk
 from .embedding_client import ChunkerEmbeddingClient
-from .md_chunker import _split_paragraphs_with_headings
+from .split_paragraphs import split_paragraphs
 
 _enc = tiktoken.get_encoding("cl100k_base")
 
@@ -93,7 +93,10 @@ class SemanticChunker(BaseChunker):
         )
 
     def run(self, text: str) -> List[Chunk]:
-        paragraphs = _split_paragraphs_with_headings(text)
+        paragraphs = split_paragraphs(
+            text,
+            max_paragraph_tokens=self.chunk_tokens,
+        )
         active: List[Dict] = []
         texts: List[str] = []
         for p in paragraphs:

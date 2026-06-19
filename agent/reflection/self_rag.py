@@ -211,7 +211,7 @@ def _heuristic_grounded(context: str, answer: str) -> bool:
     overlap = sum(1 for token in answer_tokens if token in context_lower)
     return overlap >= max(1, len(answer_tokens) // 4)
 
-
+# ======================= fallback ==========================
 
 RETRIEVE_HINT_KEYWORDS = (
     "what",
@@ -281,6 +281,8 @@ def rule_based_need_retrieve(text: str) -> bool:
 
     return False
 
+
+# ========================== demo ==========================
 
 async def _demo_main() -> None:
     """Offline smoke: rule-based retrieve classification and heuristic grounding."""

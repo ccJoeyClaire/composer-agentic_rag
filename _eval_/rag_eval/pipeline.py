@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import TypedDict
 
 import yaml
+from tqdm import tqdm
 
 from rag.base import Chunk
 from rag.build import build_RAG_indexer, build_RAG_retriever
@@ -62,16 +63,25 @@ async def index_doc_list(
     docs: list[CorpusDoc],
     *,
     concurrency: int,
+    desc: str = "index",
 ) -> int:
     """Index a list of docs with bounded concurrency; returns docs indexed."""
+    if not docs:
+        return 0
+
     semaphore = asyncio.Semaphore(concurrency)
+    pbar = tqdm(total=len(docs), desc=desc, unit="doc", dynamic_ncols=True)
 
     async def _index_one(doc: CorpusDoc) -> None:
         async with semaphore:
             source = doc.title or doc.doc_id
             await indexer.aindex(doc.text, source=source, doc_id=doc.doc_id)
+            pbar.update(1)
 
-    await asyncio.gather(*(_index_one(doc) for doc in docs))
+    try:
+        await asyncio.gather(*(_index_one(doc) for doc in docs))
+    finally:
+        pbar.close()
     return len(docs)
 
 
@@ -122,10 +132,12 @@ async def score_queries(
     qrels: Qrels,
     query_ids: list[QueryId],
     cfg: RunConfig,
+    *,
+    desc: str = "score",
 ) -> list[QueryScore]:
     """Run retrieval for each query and compute doc-level ranking metrics."""
     results: list[QueryScore] = []
-    for qid in query_ids:
+    for qid in tqdm(query_ids, desc=desc, unit="query", dynamic_ncols=True):
         relevance = qrels[qid]
         gold = gold_docs(relevance, cfg.pool_spec.rel_threshold)
         chunks = await retriever.aquery(queries[qid].text, top_k=cfg.fetch_chunks)
@@ -187,12 +199,20 @@ async def eval_pipeline(
 
     if cfg.recreate or not await collection_exists(indexer.store):
         num_docs = await index_doc_list(
-            indexer, data.pool, concurrency=cfg.index_concurrency
+            indexer,
+            data.pool,
+            concurrency=cfg.index_concurrency,
+            desc=f"{profile_id} index",
         )
     else:
         num_docs = len(data.pool)
     per_query = await score_queries(
-        retriever, data.queries, data.qrels, data.query_ids, cfg
+        retriever,
+        data.queries,
+        data.qrels,
+        data.query_ids,
+        cfg,
+        desc=f"{profile_id} score",
     )
     await indexer.store.aclose()
 

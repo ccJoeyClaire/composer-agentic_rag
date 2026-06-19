@@ -22,8 +22,9 @@ from pathlib import Path
 # One canonical name per concept, reused across the package.
 DocId = str
 QueryId = str
-# query_id -> {doc_id -> graded relevance score (>=0; 0 == judged not relevant)}.
+# Per-query slice of :data:`Qrels` (one query's gold labels).
 RelevanceMap = dict[DocId, int]
+# ``{QueryId: {DocId: graded relevance score}}`` (>=0; 0 == judged not relevant).
 Qrels = dict[QueryId, RelevanceMap]
 
 # Chunk metadata keys stamped at index time (see rag/core.py ``aindex``).

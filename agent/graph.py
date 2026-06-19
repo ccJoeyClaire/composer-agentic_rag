@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Literal
 
+import argparse
+
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
@@ -263,35 +265,58 @@ _SAMPLE_INDEX_DOC = (
 )
 
 
-async def _run_agent_demo(args: object) -> None:
+@dataclass(frozen=True)
+class AgentDemoRequest:
+    """Inputs for :func:`run_agent_demo`."""
+
+    pattern: AgentPattern
+    query: str
+    collection: str = "agent_demo"
+    in_memory: bool = False
+    index_sample_doc: bool = False
+
+
+async def run_agent_demo(request: AgentDemoRequest) -> dict[str, object]:
+    """Run a single-turn agent smoke test; returns the graph invoke result."""
     from langchain_core.messages import HumanMessage
 
     from tools.LocalTool.RAG_tool import RAG_index_tool, bind_rag_context
 
-    bind_rag_context(collection=args.collection, in_memory=args.in_memory)
+    bind_rag_context(collection=request.collection, in_memory=request.in_memory)
 
-    if getattr(args, "index", False):
+    if request.index_sample_doc:
         print(RAG_index_tool(text=_SAMPLE_INDEX_DOC, source="agent_demo.md"))
 
     llm = LLMClient()
     tool_box = ToolBox()
     graph = build_agent(
         AgentConfig(llm=llm, tool_box=tool_box),
-        pattern=args.pattern,
+        pattern=request.pattern,
     )
     result = await graph.ainvoke(
-        {"messages": [HumanMessage(content=args.query)], "metadata": {}}
+        {"messages": [HumanMessage(content=request.query)], "metadata": {}}
     )
     last = result["messages"][-1]
-    print(f"\n=== final message ({args.pattern}) ===")
+    print(f"\n=== final message ({request.pattern}) ===")
     last.pretty_print()
     meta = result.get("metadata") or {}
     if meta:
         print(f"metadata keys: {sorted(meta.keys())}")
+    return result
+
+
+def agent_demo_request_from_cli(args: argparse.Namespace) -> AgentDemoRequest:
+    """Map parsed CLI flags to :class:`AgentDemoRequest`."""
+    return AgentDemoRequest(
+        pattern=args.pattern,
+        query=args.query,
+        collection=args.collection,
+        in_memory=args.in_memory,
+        index_sample_doc=args.index,
+    )
 
 
 def _main() -> None:
-    import argparse
     import asyncio
     import os
     import sys
@@ -322,7 +347,7 @@ def _main() -> None:
         sys.exit(1)
 
     try:
-        asyncio.run(_run_agent_demo(args))
+        asyncio.run(run_agent_demo(agent_demo_request_from_cli(args)))
     except ValueError as exc:
         print(exc, file=sys.stderr)
         sys.exit(1)
