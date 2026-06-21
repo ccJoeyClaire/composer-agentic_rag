@@ -1,4 +1,4 @@
-"""Load typed pipeline settings from ``arg_config.yaml`` at the repo root.
+"""Load typed pipeline settings from ``arg_config.yaml``.
 
 Run (from repo root):
   python -m rag.config
@@ -14,7 +14,7 @@ from typing import Dict
 import yaml
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_CONFIG_PATH = _REPO_ROOT / "arg_config.yaml"
+_DEFAULT_CONFIG_PATH = _REPO_ROOT / "arg_config.yaml"
 
 _PROFILE_BOOL_FIELDS = (
     "use_token_chunker",
@@ -24,6 +24,8 @@ _PROFILE_BOOL_FIELDS = (
     "use_hyde",
     "use_reranker",
 )
+
+DEFAULT_PROFILE_ID = "baseline"
 
 
 @dataclass(frozen=True)
@@ -63,6 +65,16 @@ class RagConfig:
     profiles: Dict[str, ProfileConfig]
 
 
+def default_config_path() -> Path:
+    """Return the repo-root ``arg_config.yaml`` path."""
+    return _DEFAULT_CONFIG_PATH
+
+
+def resolve_config_path(config_path: Path | None) -> Path:
+    """Resolve ``None`` to :func:`default_config_path`."""
+    return config_path if config_path is not None else default_config_path()
+
+
 def _config_section(data: object, name: str) -> dict[str, object]:
     if not isinstance(data, dict):
         raise ValueError(
@@ -82,16 +94,15 @@ def _config_value(section: dict[str, object], section_name: str, key: str) -> ob
 
 def _parse_profile(raw: object) -> ProfileConfig:
     data = raw if isinstance(raw, dict) else {}
-    # Profile flags are optional in YAML; omitted key means false (not a second default table).
     return ProfileConfig(
         **{key: bool(data.get(key, False)) for key in _PROFILE_BOOL_FIELDS}
     )
 
 
-@lru_cache(maxsize=1)
-def get_rag_config() -> RagConfig:
-    """Load pipeline settings from ``arg_config.yaml`` (single source of truth)."""
-    with _CONFIG_PATH.open(encoding="utf-8") as handle:
+@lru_cache(maxsize=8)
+def load_rag_config(config_path: Path) -> RagConfig:
+    """Load pipeline settings from an explicit YAML path."""
+    with config_path.open(encoding="utf-8") as handle:
         data = yaml.safe_load(handle)
 
     chunker_raw = _config_section(data, "chunker")
@@ -119,27 +130,42 @@ def get_rag_config() -> RagConfig:
     return RagConfig(chunker=chunker, retriever=retriever, profiles=profiles)
 
 
-def _demo_main() -> None:
-    """Offline smoke: print parsed chunker, retriever, and profile flags."""
-    cfg = get_rag_config()
-    print(f"Config path: {_CONFIG_PATH}")
-    print("\n=== chunker ===")
-    print(f"  chunk_tokens={cfg.chunker.chunk_tokens}")
-    print(f"  overlap_tokens={cfg.chunker.overlap_tokens}")
-    print(f"  break_similarity={cfg.chunker.break_similarity}")
-    print(f"  min_chunk_tokens={cfg.chunker.min_chunk_tokens}")
-    print("\n=== retriever ===")
-    print(f"  recall_n={cfg.retriever.recall_n}")
-    print(f"  top_k={cfg.retriever.top_k}")
-    print("\n=== profiles ===")
-    for profile_id, profile in sorted(cfg.profiles.items()):
-        flags = ", ".join(
-            key
-            for key in _PROFILE_BOOL_FIELDS
-            if getattr(profile, key)
-        )
-        print(f"  {profile_id}: {flags or '(all false)'}")
+def get_rag_config(config_path: Path | None = None) -> RagConfig:
+    """Load pipeline settings; ``config_path`` defaults to repo-root YAML."""
+    return load_rag_config(resolve_config_path(config_path))
+
+
+def get_profile(
+    config: RagConfig,
+    profile_id: str = DEFAULT_PROFILE_ID,
+) -> ProfileConfig:
+    """Return one named profile from a loaded :class:`RagConfig`."""
+    try:
+        return config.profiles[profile_id]
+    except KeyError as exc:
+        known = ", ".join(sorted(config.profiles))
+        raise KeyError(f"Unknown profile {profile_id!r}; known: {known}") from exc
 
 
 if __name__ == "__main__":
-    _demo_main()
+    def demo_print_config() -> None:
+        """Offline smoke: print parsed chunker, retriever, and profile flags."""
+        cfg = get_rag_config()
+        path = default_config_path()
+        print(f"Config path: {path}")
+        print("\n=== chunker ===")
+        print(f"  chunk_tokens={cfg.chunker.chunk_tokens}")
+        print(f"  overlap_tokens={cfg.chunker.overlap_tokens}")
+        print(f"  break_similarity={cfg.chunker.break_similarity}")
+        print(f"  min_chunk_tokens={cfg.chunker.min_chunk_tokens}")
+        print("\n=== retriever ===")
+        print(f"  recall_n={cfg.retriever.recall_n}")
+        print(f"  top_k={cfg.retriever.top_k}")
+        print("\n=== profiles ===")
+        for pid, profile in sorted(cfg.profiles.items()):
+            flags = ", ".join(
+                key for key in _PROFILE_BOOL_FIELDS if getattr(profile, key)
+            )
+            print(f"  {pid}: {flags or '(all false)'}")
+
+    demo_print_config()

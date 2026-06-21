@@ -252,6 +252,7 @@ class SmallToBigRetriever(BaseRetriever):
         self.store = store or getattr(inner, "store", None)
         self.recall_multiplier = max(1, recall_multiplier)
         self.parent_token_budget = parent_token_budget
+        self.last_small_hits: List[Chunk] = []
 
     async def aretrieve(self, query: str, top_k: int) -> List[Chunk]:
         if not query.strip():
@@ -260,6 +261,7 @@ class SmallToBigRetriever(BaseRetriever):
         # 多召回一些 small hit，expand 去重合并后仍够 top_k 个 parent
         recall_k = max(top_k, top_k * self.recall_multiplier)
         small_hits = await self.inner.aretrieve(query, top_k=recall_k)
+        self.last_small_hits = list(small_hits)
         return await expand_small_hits_to_parents(
             small_hits,
             top_k=top_k,

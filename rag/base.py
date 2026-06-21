@@ -63,6 +63,7 @@ class Chunk:
 # ---------------------------------------------------------------------------
 TRACE_WORKING_QUERY_KEY = "working_query"
 TRACE_HYDE_DOCUMENT_KEY = "hyde_document"
+TRACE_SMALL_RETRIEVED_KEY = "trace_small_retrieved"
 TRACE_RETRIEVED_KEY = "trace_retrieved"
 TRACE_RERANKED_KEY = "trace_reranked"
 
@@ -78,6 +79,9 @@ class RagTraceMeta(TypedDict, total=False):
     # Query-transform stage
     working_query: str   # effective query sent to the vector store
     hyde_document: str   # HyDE-generated hypothetical document, if any
+
+    # Small-to-big: raw vector hits before parent expansion (SmallToBigRetriever only)
+    trace_small_retrieved: List[Chunk]
 
     # Vector-store retrieval stage (fetch_k results, before rerank/truncation)
     trace_retrieved: List[Chunk]

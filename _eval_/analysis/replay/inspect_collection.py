@@ -21,7 +21,11 @@ Library usage::
     )
     print(result["summary"]["chunks_per_doc"])
 
-CLI::
+Run (offline fixture demo, no Qdrant)::
+
+    python -m _eval_.analysis.replay.inspect_collection
+
+CLI (live Qdrant, pass any flag)::
 
     python -m _eval_.analysis.replay.inspect_collection \\
       --collection pooleval_nfcorpus_semantic \\
@@ -31,10 +35,6 @@ CLI::
 
 from __future__ import annotations
 
-import argparse
-import asyncio
-import json
-import sys
 from collections import Counter
 from dataclasses import dataclass
 from typing import TypedDict
@@ -264,75 +264,146 @@ def format_inspect_result(
     return "\n".join(parts)
 
 
-def inspect_result_to_json_dict(
-    result: InspectCollectionResult,
-    *,
-    summary_only: bool = False,
-) -> dict[str, object]:
-    """JSON-serializable payload matching CLI ``--json`` output."""
-    if summary_only:
-        return dict(result["summary"])
-    return {
-        "collection": result["collection"],
-        "summary": result["summary"],
-        "next_offset": result["next_offset"],
-        "chunks": result["chunks"],
-    }
-
-
-def inspect_collection_request_from_cli(args: argparse.Namespace) -> InspectCollectionRequest:
-    """Map parsed CLI flags to a typed request (for scripts that reuse argparse)."""
-    return InspectCollectionRequest(
-        collection=args.collection,
-        limit=args.limit,
-        doc_id=args.doc_id,
-        source=args.source,
-        summary_only=args.summary_only,
-    )
-
-
-async def run_inspect_cli(
-    request: InspectCollectionRequest,
-    *,
-    as_json: bool = False,
-) -> int:
-    """Execute one inspect run and print to stdout (CLI entry)."""
-    result = await inspect_collection(request)
-    if as_json:
-        print(
-            json.dumps(
-                inspect_result_to_json_dict(result, summary_only=request.summary_only),
-                indent=2,
-                ensure_ascii=False,
-            )
-        )
-    else:
-        print(format_inspect_result(result, summary_only=request.summary_only))
-    return 0
-
-
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Inspect chunks stored in a post-eval Qdrant collection.",
-    )
-    parser.add_argument("--collection", required=True, help="Qdrant collection name")
-    parser.add_argument("--limit", type=int, default=20, help="Page size for chunk listing")
-    parser.add_argument("--doc-id", help=f"Filter on metadata.{DOC_ID_META_KEY}")
-    parser.add_argument("--source", help=f"Filter on metadata.{SOURCE_META_KEY}")
-    parser.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
-    parser.add_argument(
-        "--summary-only",
-        action="store_true",
-        help=f"Scroll up to {_SUMMARY_SCROLL_CAP} points and print stats only",
-    )
-    return parser
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
-    request = inspect_collection_request_from_cli(args)
-    return asyncio.run(run_inspect_cli(request, as_json=args.json))
-
-
 if __name__ == "__main__":
-    sys.exit(main())
+    import argparse
+    import asyncio
+    import json
+    import sys
+
+    def _inspect_result_to_json_dict(
+        result: InspectCollectionResult,
+        *,
+        summary_only: bool = False,
+    ) -> dict[str, object]:
+        if summary_only:
+            return dict(result["summary"])
+        return {
+            "collection": result["collection"],
+            "summary": result["summary"],
+            "next_offset": result["next_offset"],
+            "chunks": result["chunks"],
+        }
+
+    def _request_from_cli(args: argparse.Namespace) -> InspectCollectionRequest:
+        return InspectCollectionRequest(
+            collection=args.collection,
+            limit=args.limit,
+            doc_id=args.doc_id,
+            source=args.source,
+            summary_only=args.summary_only,
+        )
+
+    async def _run_cli(
+        request: InspectCollectionRequest,
+        *,
+        as_json: bool = False,
+    ) -> int:
+        result = await inspect_collection(request)
+        if as_json:
+            print(
+                json.dumps(
+                    _inspect_result_to_json_dict(
+                        result, summary_only=request.summary_only
+                    ),
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+        else:
+            print(format_inspect_result(result, summary_only=request.summary_only))
+        return 0
+
+    def _build_parser() -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(
+            description="Inspect chunks stored in a post-eval Qdrant collection.",
+        )
+        parser.add_argument("--collection", required=True, help="Qdrant collection name")
+        parser.add_argument("--limit", type=int, default=20, help="Page size for chunk listing")
+        parser.add_argument("--doc-id", help=f"Filter on metadata.{DOC_ID_META_KEY}")
+        parser.add_argument("--source", help=f"Filter on metadata.{SOURCE_META_KEY}")
+        parser.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
+        parser.add_argument(
+            "--summary-only",
+            action="store_true",
+            help=f"Scroll up to {_SUMMARY_SCROLL_CAP} points and print stats only",
+        )
+        return parser
+
+    def main(argv: list[str] | None = None) -> int:
+        args = _build_parser().parse_args(argv)
+        request = _request_from_cli(args)
+        return asyncio.run(_run_cli(request, as_json=args.json))
+
+    if len(sys.argv) > 1:
+        raise SystemExit(main())
+
+    def _demo_fixture_chunks() -> list[Chunk]:
+        """Synthetic indexed chunks for offline demo (no Qdrant)."""
+        return [
+            Chunk(
+                "Vitamin D supplementation reduces fracture risk in elderly patients.",
+                metadata={
+                    "doc_id": "MED-10",
+                    "source": "Vitamin D and bone health",
+                    "heading_path": "Introduction",
+                    CHUNK_ROLE_KEY: "small",
+                    "embed_text": "Vitamin D supplementation reduces fracture risk.",
+                },
+                score=0.0,
+            ),
+            Chunk(
+                "Calcium intake alone does not prevent osteoporosis without vitamin D.",
+                metadata={
+                    "doc_id": "MED-10",
+                    "source": "Vitamin D and bone health",
+                    "heading_path": "Mechanism",
+                    CHUNK_ROLE_KEY: "parent",
+                },
+                score=0.0,
+            ),
+            Chunk(
+                "Unrelated passage about seasonal allergies and antihistamines.",
+                metadata={
+                    "doc_id": "MED-42",
+                    "source": "Allergy management review",
+                    "heading_path": "",
+                    CHUNK_ROLE_KEY: "small",
+                },
+                score=0.0,
+            ),
+        ]
+
+    async def _run_offline_demo() -> None:
+        from tests.fakes.vector_store import InMemoryVectorStore
+
+        store = InMemoryVectorStore()
+        demo_chunks = _demo_fixture_chunks()
+        await store.aadd_chunks(demo_chunks, [[1.0] for _ in demo_chunks])
+
+        summary_result = await inspect_collection(
+            InspectCollectionRequest(
+                collection="demo_nfcorpus_token",
+                summary_only=True,
+                summary_scroll_cap=100,
+            ),
+            store=store,
+        )
+        print("=== Usage 1: InspectCollectionRequest(summary_only=True) ===\n")
+        print(format_inspect_result(summary_result, summary_only=True))
+
+        page_result = await inspect_collection(
+            InspectCollectionRequest(
+                collection="demo_nfcorpus_token",
+                limit=5,
+                doc_id="MED-10",
+            ),
+            store=store,
+        )
+        print("\n=== Usage 2: InspectCollectionRequest(limit=5, doc_id='MED-10') ===\n")
+        print(format_inspect_result(page_result))
+
+    asyncio.run(_run_offline_demo())
+    print(
+        "\nLive Qdrant: python -m _eval_.analysis.replay.inspect_collection "
+        "--collection pooleval_nfcorpus_token --summary-only"
+    )

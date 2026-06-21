@@ -13,6 +13,7 @@ import asyncio
 import dataclasses
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -96,13 +97,19 @@ def main() -> None:
         description="Pooled BEIR RAG eval (index + retrieval metrics)."
     )
     parser.add_argument(
+        "--config",
+        default=None,
+        help="Path to rag_eval YAML (default: rag_eval_arg_config.yaml at repo root)",
+    )
+    parser.add_argument(
         "--no-recreate",
         action="store_true",
         help="Reuse existing Qdrant collection; skip re-indexing when it exists",
     )
     args = parser.parse_args()
 
-    cfg = load_rag_eval_config()
+    config_path = Path(args.config) if args.config else None
+    cfg = load_rag_eval_config(config_path)
     if args.no_recreate:
         cfg = dataclasses.replace(cfg, recreate=False)
 

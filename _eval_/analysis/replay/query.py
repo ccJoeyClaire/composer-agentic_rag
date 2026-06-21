@@ -13,7 +13,11 @@ Library usage::
         )
     )
 
-CLI::
+Run (offline fixture demo, no Qdrant / LLM)::
+
+    python -m _eval_.analysis.replay.query
+
+CLI (live replay, pass any flag)::
 
     python -m _eval_.analysis.replay.query \\
       --profile semantic_rerank \\
@@ -25,9 +29,6 @@ CLI::
 
 from __future__ import annotations
 
-import argparse
-import asyncio
-import json
 import sys
 from dataclasses import dataclass, field
 from typing import TypedDict
@@ -246,111 +247,193 @@ def format_query_replay_result(
     return "\n".join(lines)
 
 
-def query_replay_result_to_json_dict(
-    result: QueryReplayResult,
-    *,
-    stages: tuple[StageName, ...] = _DEFAULT_STAGES,
-) -> dict[str, object]:
-    """JSON-serializable payload matching CLI ``--json`` output."""
-    stage_chunks = {
-        "retrieved": result["retrieved"],
-        "reranked": result["reranked"] or [],
-        "final": result["final"],
-    }
-    has_reranker = result["has_reranker"]
-    payload: dict[str, object] = {
-        "profile": result["profile"],
-        "collection": result["collection"],
-        "query": result["query"],
-        "top_k": result["top_k"],
-        "stages": {
-            stage: [chunk_to_stage_preview(chunk) for chunk in stage_chunks[stage]]
-            for stage in stages
-            if stage != "reranked" or has_reranker
-        },
-    }
-    if result["gold_report"]:
-        payload["gold_report"] = result["gold_report"]
-    return payload
-
-
-def query_replay_request_from_cli(args: argparse.Namespace) -> QueryReplayRequest:
-    """Map parsed CLI flags to a typed request."""
-    gold_ids: frozenset[DocId] = frozenset()
-    if args.gold_doc_ids:
-        gold_ids = frozenset(
-            doc_id.strip() for doc_id in args.gold_doc_ids.split(",") if doc_id.strip()
-        )
-    return QueryReplayRequest(
-        profile=args.profile,
-        dataset=args.dataset,
-        collection=args.collection,
-        query=args.query,
-        query_id=args.query_id,
-        top_k=args.top_k,
-        stages=parse_stages(args.stages),
-        gold_doc_ids=gold_ids,
-        hyde_from_log=args.hyde_from_log,
-    )
-
-
-async def run_query_cli(
-    request: QueryReplayRequest,
-    *,
-    as_json: bool = False,
-) -> int:
-    """Execute one query replay and print to stdout (CLI entry)."""
-    result = await replay_query(request)
-    if as_json:
-        print(
-            json.dumps(
-                query_replay_result_to_json_dict(result, stages=request.stages),
-                indent=2,
-                ensure_ascii=False,
-            )
-        )
-    else:
-        print(format_query_replay_result(result, stages=request.stages))
-    return 0
-
-
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Replay query pipeline against an existing eval collection.",
-    )
-    parser.add_argument("--profile", required=True, help="arg_config.yaml profile id")
-    parser.add_argument("--collection", help="Override Qdrant collection name")
-    parser.add_argument("--dataset", default="nfcorpus", choices=sorted(DATASETS))
-    parser.add_argument("--query", help="Query text")
-    parser.add_argument("--query-id", help="BEIR query id (loads text + optional qrels gold)")
-    parser.add_argument("--top-k", type=int, default=80, help="Final top-k passed to aquery_trace")
-    parser.add_argument(
-        "--stages",
-        default="retrieved,reranked,final",
-        help="Comma-separated stages to print",
-    )
-    parser.add_argument(
-        "--gold-doc-ids",
-        help="Comma-separated gold doc ids (overrides qrels lookup)",
-    )
-    parser.add_argument(
-        "--hyde-from-log",
-        dest="hyde_from_log",
-        help="Phase 2: replay HyDE text from JSONL instead of calling the LLM",
-    )
-    parser.add_argument("--json", action="store_true", help="Emit JSON instead of tables")
-    return parser
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
-    try:
-        request = query_replay_request_from_cli(args)
-    except ValueError as exc:
-        print(exc, file=sys.stderr)
-        return 1
-    return asyncio.run(run_query_cli(request, as_json=args.json))
-
-
 if __name__ == "__main__":
-    sys.exit(main())
+    import argparse
+    import asyncio
+    import json
+
+    def _query_replay_result_to_json_dict(
+        result: QueryReplayResult,
+        *,
+        stages: tuple[StageName, ...] = _DEFAULT_STAGES,
+    ) -> dict[str, object]:
+        stage_chunks = {
+            "retrieved": result["retrieved"],
+            "reranked": result["reranked"] or [],
+            "final": result["final"],
+        }
+        has_reranker = result["has_reranker"]
+        payload: dict[str, object] = {
+            "profile": result["profile"],
+            "collection": result["collection"],
+            "query": result["query"],
+            "top_k": result["top_k"],
+            "stages": {
+                stage: [chunk_to_stage_preview(chunk) for chunk in stage_chunks[stage]]
+                for stage in stages
+                if stage != "reranked" or has_reranker
+            },
+        }
+        if result["gold_report"]:
+            payload["gold_report"] = result["gold_report"]
+        return payload
+
+    def _request_from_cli(args: argparse.Namespace) -> QueryReplayRequest:
+        gold_ids: frozenset[DocId] = frozenset()
+        if args.gold_doc_ids:
+            gold_ids = frozenset(
+                doc_id.strip() for doc_id in args.gold_doc_ids.split(",") if doc_id.strip()
+            )
+        return QueryReplayRequest(
+            profile=args.profile,
+            dataset=args.dataset,
+            collection=args.collection,
+            query=args.query,
+            query_id=args.query_id,
+            top_k=args.top_k,
+            stages=parse_stages(args.stages),
+            gold_doc_ids=gold_ids,
+            hyde_from_log=args.hyde_from_log,
+        )
+
+    async def _run_cli(
+        request: QueryReplayRequest,
+        *,
+        as_json: bool = False,
+    ) -> int:
+        result = await replay_query(request)
+        if as_json:
+            print(
+                json.dumps(
+                    _query_replay_result_to_json_dict(result, stages=request.stages),
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+        else:
+            print(format_query_replay_result(result, stages=request.stages))
+        return 0
+
+    def _build_parser() -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(
+            description="Replay query pipeline against an existing eval collection.",
+        )
+        parser.add_argument("--profile", required=True, help="arg_config.yaml profile id")
+        parser.add_argument("--collection", help="Override Qdrant collection name")
+        parser.add_argument("--dataset", default="nfcorpus", choices=sorted(DATASETS))
+        parser.add_argument("--query", help="Query text")
+        parser.add_argument("--query-id", help="BEIR query id (loads text + optional qrels gold)")
+        parser.add_argument(
+            "--top-k", type=int, default=80, help="Final top-k passed to aquery_trace"
+        )
+        parser.add_argument(
+            "--stages",
+            default="retrieved,reranked,final",
+            help="Comma-separated stages to print",
+        )
+        parser.add_argument(
+            "--gold-doc-ids",
+            help="Comma-separated gold doc ids (overrides qrels lookup)",
+        )
+        parser.add_argument(
+            "--hyde-from-log",
+            dest="hyde_from_log",
+            help="Phase 2: replay HyDE text from JSONL instead of calling the LLM",
+        )
+        parser.add_argument("--json", action="store_true", help="Emit JSON instead of tables")
+        return parser
+
+    def main(argv: list[str] | None = None) -> int:
+        args = _build_parser().parse_args(argv)
+        try:
+            request = _request_from_cli(args)
+        except ValueError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        return asyncio.run(_run_cli(request, as_json=args.json))
+
+    if len(sys.argv) > 1:
+        raise SystemExit(main())
+
+    def _demo_trace_chunks() -> tuple[list[Chunk], list[Chunk], list[Chunk]]:
+        """Synthetic aquery_trace stages for offline demo (no Qdrant / LLM)."""
+        retrieved = [
+            Chunk(
+                "noise passage about unrelated topic",
+                metadata={"doc_id": "distractor", "chunk_role": "small"},
+                score=0.91,
+            ),
+            Chunk(
+                "relevant passage about vitamin D",
+                metadata={"doc_id": "gold_doc", "chunk_role": "small"},
+                score=0.88,
+            ),
+            Chunk(
+                "another distractor",
+                metadata={"doc_id": "other", "chunk_role": "small"},
+                score=0.85,
+            ),
+        ]
+        reranked = [
+            Chunk(
+                "relevant passage about vitamin D",
+                metadata={"doc_id": "gold_doc", "chunk_role": "small"},
+                score=0.97,
+            ),
+            Chunk(
+                "noise passage about unrelated topic",
+                metadata={"doc_id": "distractor", "chunk_role": "small"},
+                score=0.42,
+            ),
+            Chunk(
+                "another distractor",
+                metadata={"doc_id": "other", "chunk_role": "small"},
+                score=0.31,
+            ),
+        ]
+        final = reranked[:2]
+        return retrieved, reranked, final
+
+    def _demo_query_replay_result() -> QueryReplayResult:
+        retrieved, reranked, final = _demo_trace_chunks()
+        return QueryReplayResult(
+            profile="semantic_rerank",
+            collection="demo_offline",
+            query="Do vitamin D supplements help immunity?",
+            top_k=2,
+            has_reranker=True,
+            retrieved=retrieved,
+            reranked=reranked,
+            final=final,
+            gold_report=gold_rank_report(
+                {"gold_doc", "missing_gold"},
+                retrieved=retrieved,
+                reranked=reranked,
+                final=final,
+                top_k=2,
+            ),
+        )
+
+    live_request = QueryReplayRequest(
+        profile="semantic_rerank",
+        dataset="nfcorpus",
+        query_id="PLAIN-2",
+        top_k=80,
+        stages=("retrieved", "reranked", "final"),
+    )
+    print("=== QueryReplayRequest (pass to replay_query) ===")
+    print(f"  profile={live_request.profile!r}")
+    print(f"  dataset={live_request.dataset!r}")
+    print(f"  query_id={live_request.query_id!r}")
+    print(f"  top_k={live_request.top_k}")
+    print(f"  stages={live_request.stages}")
+
+    result = _demo_query_replay_result()
+    print("\n=== format_query_replay_result (synthetic trace) ===\n")
+    print(format_query_replay_result(result, stages=live_request.stages))
+
+    print(
+        "\nLive replay (indexed collection + API keys):\n"
+        "  python -m _eval_.analysis.replay.query "
+        "--profile semantic_rerank --query-id PLAIN-2"
+    )

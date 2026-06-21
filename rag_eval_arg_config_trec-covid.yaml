@@ -1,0 +1,25 @@
+dataset: trec-covid
+
+# TREC-COVID profile ablation (test qrels; pooled subset ~20k docs for 50 queries).
+profiles:
+  - token
+  - semantic
+  - semantic_rerank
+  - baseline
+  - baseline_s2b
+  - baseline_hyde
+  - baseline_s2b_hyde
+  - baseline_predict_q
+  - full
+
+query_limit: 50
+recreate: true
+index_concurrency: 2
+predict_question_max_concurrency: 2
+
+k_values: [3, 10, 20]
+chunk_fetch_multiplier: 4
+
+pool:
+  rel_threshold: 1
+  max_distractors_per_query: 100

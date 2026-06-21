@@ -7,6 +7,7 @@ from .base import (
     TRACE_HYDE_DOCUMENT_KEY,
     TRACE_RERANKED_KEY,
     TRACE_RETRIEVED_KEY,
+    TRACE_SMALL_RETRIEVED_KEY,
     TRACE_WORKING_QUERY_KEY,
     BaseChunker,
     BaseContextualEnricher,
@@ -156,7 +157,10 @@ class RAGRetriever:
         ctx.working_query = q
 
         chunks = await self.retriever.aretrieve(ctx.effective_query, top_k=fetch_k)
-        # Snapshot raw retrieval order before any enrichment or reranking.
+        small_hits = getattr(self.retriever, "last_small_hits", None)
+        if small_hits:
+            ctx.metadata[TRACE_SMALL_RETRIEVED_KEY] = list(small_hits)
+        # Snapshot retrieval order before contextual enrich / rerank (parents when s2b).
         ctx.metadata[TRACE_RETRIEVED_KEY] = list(chunks)
 
         if self.contextual_enricher:
@@ -192,9 +196,8 @@ class RAGRetriever:
 
         Returns:
             ``RagResult`` with ``chunks`` set to the final top_k results and
-            ``metadata`` populated with ``TRACE_RETRIEVED_KEY`` /
-            ``TRACE_RERANKED_KEY`` (and optionally ``TRACE_WORKING_QUERY_KEY`` /
-            ``TRACE_HYDE_DOCUMENT_KEY``) list snapshots.
+            ``metadata`` populated with ``TRACE_*`` list snapshots (including
+            ``TRACE_SMALL_RETRIEVED_KEY`` when small-to-big is enabled).
         """
         effective_top_k = top_k if top_k is not None else get_rag_config().retriever.top_k
         ctx = RagContext(query=query, top_k=effective_top_k)

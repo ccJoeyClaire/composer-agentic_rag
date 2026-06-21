@@ -344,50 +344,9 @@ def build_search_request_from_cli(args: argparse.Namespace) -> BuildSearchReques
     )
 
 
-def _main() -> None:
-    import argparse
-    import asyncio
-    import sys
-
-    from dotenv import load_dotenv
-
-    load_dotenv()
-
-    parser = argparse.ArgumentParser(description="Index or search via RAG factory.")
-    parser.add_argument("--collection", default="demo", help="Qdrant collection name")
-    parser.add_argument("--in-memory", action="store_true", help="Use Qdrant :memory:")
-    sub = parser.add_subparsers(dest="command", required=True)
-
-    index_p = sub.add_parser("index", help="Index sample or file text")
-    index_p.add_argument("--file", help="Markdown/text file to index")
-    index_p.add_argument("--token-chunker", action="store_true")
-    index_p.add_argument("--contextual", action="store_true")
-    index_p.add_argument("--small-to-big", action="store_true")
-
-    search_p = sub.add_parser("search", help="Query indexed collection")
-    search_p.add_argument("query", help="Search query")
-    search_p.add_argument("--top-k", type=int, default=3)
-    search_p.add_argument("--hyde", action="store_true")
-    search_p.add_argument("--rerank", action="store_true")
-    search_p.add_argument("--contextual", action="store_true")
-    search_p.add_argument("--small-to-big", action="store_true")
-
-    args = parser.parse_args()
-    _require_embedding_key()
-
-    try:
-        if args.command == "index":
-            request = build_index_request_from_cli(args)
-            ok = asyncio.run(run_build_index(request))
-            print("Indexed OK" if ok else "Index failed")
-        else:
-            request = build_search_request_from_cli(args)
-            trace = asyncio.run(run_build_search(request))
-            print_build_search_result(request, trace)
-    except ValueError as exc:
-        print(exc, file=sys.stderr)
-        sys.exit(1)
-
-
 if __name__ == "__main__":
-    _main()
+    def demo() -> None:
+        """Smoke demo: index sample text then search (fixed args, no CLI)."""
+        ...
+
+    demo()

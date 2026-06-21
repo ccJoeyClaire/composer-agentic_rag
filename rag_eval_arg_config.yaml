@@ -1,5 +1,8 @@
 dataset: nfcorpus
 
+# Per-dataset overrides: rag_eval_arg_config_hotpotqa.yaml, rag_eval_arg_config_msmarco.yaml, rag_eval_arg_config_trec-covid.yaml
+# Run: python -m _eval_.rag_eval.run --config rag_eval_arg_config_hotpotqa.yaml
+
 # NFCorpus profile ablation (see arg_config.yaml for flag definitions).
 # Phase 1 (no LLM index): token … baseline_s2b_hyde
 # Phase 2 (LLM index): baseline_predict_q, full

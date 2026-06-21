@@ -57,6 +57,12 @@ DATASETS: dict[str, DatasetSpec] = {
         queries="msmarco/queries.jsonl",
         qrels="msmarco/qrels/dev.tsv",
     ),
+    "hotpotqa": DatasetSpec(
+        dataset_id="hotpotqa",
+        corpus="hotpotqa/corpus.jsonl",
+        queries="hotpotqa/queries.jsonl",
+        qrels="hotpotqa/qrels/test.tsv",
+    ),
     "nfcorpus": DatasetSpec(
         dataset_id="nfcorpus",
         corpus="nfcorpus/corpus.jsonl",
