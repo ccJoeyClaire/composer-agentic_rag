@@ -280,7 +280,8 @@ async def run_agent_demo(request: AgentDemoRequest) -> dict[str, object]:
     """Run a single-turn agent smoke test; returns the graph invoke result."""
     from langchain_core.messages import HumanMessage
 
-    from tools.LocalTool.RAG_tool import RAG_index_tool, bind_rag_context
+    from rag.context import bind_rag_context
+    from tools.LocalTool.RAG_tool import RAG_index_tool
 
     bind_rag_context(collection=request.collection, in_memory=request.in_memory)
 

@@ -1,10 +1,17 @@
-"""Verify tools.LocalTool.RAG_tool: bind_rag_context + legacy bind_indexer / bind_retriever."""
+"""Verify RAG tools and :mod:`rag.context` binding (full + legacy paths)."""
 
 from __future__ import annotations
 
 import pytest
 
 from rag.chunker.semantic_chunker import SemanticChunker
+from rag.context import (
+    bind_indexer,
+    bind_rag_context,
+    bind_retriever,
+    get_active_context,
+    reset_rag_context,
+)
 from rag.core import RAGIndexer, RAGRetriever
 from rag.retriever.vector_retriever import VectorRetriever
 from tools.LocalTool import RAG_tool
@@ -16,9 +23,9 @@ RAG_TOOL_PACKAGE = ("tools.LocalTool.RAG_tool",)
 
 @pytest.fixture
 def reset_rag_bindings():
-    RAG_tool._context = RAG_tool.RagToolContext()
+    reset_rag_context()
     yield
-    RAG_tool._context = RAG_tool.RagToolContext()
+    reset_rag_context()
 
 
 @pytest.fixture
@@ -47,8 +54,8 @@ def bound_rag_stack(
         ),
         recall_n=5,
     )
-    RAG_tool.bind_indexer(indexer)
-    RAG_tool.bind_retriever(retriever, top_k=2)
+    bind_indexer(indexer)
+    bind_retriever(retriever, top_k=2)
     return indexer, retriever
 
 
@@ -112,21 +119,21 @@ def test_legacy_fixed_retriever_notes_on_options(bound_rag_stack):
 def test_full_context_caches_and_clamps_retriever_variants(
     mock_embedder, in_memory_vector_store, reset_rag_bindings
 ):
-    RAG_tool.bind_rag_context(
+    bind_rag_context(
         collection="variant_test",
         in_memory=True,
         store=in_memory_vector_store,
         embedder=mock_embedder,
         max_recall_n=10,
     )
-    ctx = RAG_tool._context
+    ctx = get_active_context()
 
     r1, _ = ctx.resolve_retriever(use_hyde=False, use_reranker=False, recall_n=5)
     r2, _ = ctx.resolve_retriever(use_hyde=False, use_reranker=False, recall_n=5)
-    assert r1 is r2  # same key -> cached
+    assert r1 is r2
 
     r3, _ = ctx.resolve_retriever(use_hyde=False, use_reranker=False, recall_n=7)
-    assert r3 is not r1  # different recall_n -> new variant
+    assert r3 is not r1
 
     r4, notes = ctx.resolve_retriever(use_hyde=False, use_reranker=False, recall_n=999)
     assert any("clamp" in note for note in notes)
@@ -137,14 +144,14 @@ def test_full_context_caches_and_clamps_retriever_variants(
 def test_disabled_query_option_emits_note(
     mock_embedder, in_memory_vector_store, reset_rag_bindings
 ):
-    RAG_tool.bind_rag_context(
+    bind_rag_context(
         collection="disabled_test",
         in_memory=True,
         store=in_memory_vector_store,
         embedder=mock_embedder,
         allow_hyde=False,
     )
-    _, notes = RAG_tool._context.resolve_retriever(
+    _, notes = get_active_context().resolve_retriever(
         use_hyde=True, use_reranker=False, recall_n=None
     )
     assert any("use_hyde" in note for note in notes)
@@ -154,16 +161,33 @@ def test_disabled_query_option_emits_note(
 def test_disabled_predict_questions_emits_note(
     mock_embedder, in_memory_vector_store, reset_rag_bindings
 ):
-    RAG_tool.bind_rag_context(
+    bind_rag_context(
         collection="predict_test",
         in_memory=True,
         store=in_memory_vector_store,
         embedder=mock_embedder,
         allow_predict_questions=False,
     )
-    indexer, notes = RAG_tool._context.resolve_indexer(use_predict_questions=True)
+    indexer, notes = get_active_context().resolve_indexer(use_predict_questions=True)
     assert indexer is not None
     assert any("use_predict_questions" in note for note in notes)
+
+
+@pytest.mark.unit
+def test_bind_rag_context_applies_profile_flags(
+    mock_embedder, in_memory_vector_store, reset_rag_bindings
+):
+    ctx = bind_rag_context(
+        collection="profile_test",
+        in_memory=True,
+        store=in_memory_vector_store,
+        embedder=mock_embedder,
+        profile_id="baseline",
+    )
+    assert ctx.use_small_to_big is False
+    assert ctx.use_contextual is True
+    assert ctx.allow_hyde is False
+    assert ctx.allow_reranker is True
 
 
 @pytest.mark.integration
@@ -185,9 +209,3 @@ async def test_rag_tools_via_tool_box(rag_tool_box, bound_rag_stack):
     )
     assert search_result.error is None
     assert "langgraph agent retrieval" in str(search_result.output)
-
-
-# ================================================================================================================
-# PowerShell:
-#   pytest -c tests/pytest.ini tests/tools/test_rag_tool.py -v
-# ================================================================================================================
