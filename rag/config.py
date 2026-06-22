@@ -65,16 +65,6 @@ class RagConfig:
     profiles: Dict[str, ProfileConfig]
 
 
-def default_config_path() -> Path:
-    """Return the repo-root ``arg_config.yaml`` path."""
-    return _DEFAULT_CONFIG_PATH
-
-
-def resolve_config_path(config_path: Path | None) -> Path:
-    """Resolve ``None`` to :func:`default_config_path`."""
-    return config_path if config_path is not None else default_config_path()
-
-
 def _config_section(data: object, name: str) -> dict[str, object]:
     if not isinstance(data, dict):
         raise ValueError(
@@ -131,8 +121,8 @@ def load_rag_config(config_path: Path) -> RagConfig:
 
 
 def get_rag_config(config_path: Path | None = None) -> RagConfig:
-    """Load pipeline settings; ``config_path`` defaults to repo-root YAML."""
-    return load_rag_config(resolve_config_path(config_path))
+    path = config_path if config_path is not None else _DEFAULT_CONFIG_PATH
+    return load_rag_config(path)
 
 
 def get_profile(
@@ -151,7 +141,7 @@ if __name__ == "__main__":
     def demo_print_config() -> None:
         """Offline smoke: print parsed chunker, retriever, and profile flags."""
         cfg = get_rag_config()
-        path = default_config_path()
+        path = _DEFAULT_CONFIG_PATH
         print(f"Config path: {path}")
         print("\n=== chunker ===")
         print(f"  chunk_tokens={cfg.chunker.chunk_tokens}")
