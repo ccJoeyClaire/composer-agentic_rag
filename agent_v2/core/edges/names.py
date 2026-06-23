@@ -10,4 +10,3 @@ class NodeName:
     TOOLS = "tools"
     RAG_PROFILE_ROUTER = "rag_profile_router"
     RETRIEVAL_GATE = "retrieval_gate"
-    HUMAN_FEEDBACK = "human_feedback"

@@ -36,17 +36,24 @@ def _resolve_tool_box(config: AgentConfig) -> AgentToolBox:
     )
 
 
+def _resolve_checkpointer(config: AgentConfig) -> object | None:
+    if config.checkpointer is not None:
+        return config.checkpointer
+    if config.enable_human_feedback:
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        return InMemorySaver()
+    return None
+
+
 def _register_capabilities(graph: StateGraph, config: AgentConfig) -> None:
     if config.enable_rag_profile:
         RagProfileCapability().register(graph, config)
     if config.enable_retrieval_gate:
         RetrievalGateCapability().register(graph, config)
-    if config.enable_human_feedback:
-        HumanFeedbackCapability().register(graph, config)
 
 
 def _wire_edges(graph: StateGraph, config: AgentConfig) -> None:
-    """Wire the LLM-centric topology (see agent_v2/README structure)."""
     llm_route = partial(route_after_llm, agent_config=config)
     tools_route = partial(route_after_tools, agent_config=config)
 
@@ -65,30 +72,15 @@ def _wire_edges(graph: StateGraph, config: AgentConfig) -> None:
     tools_targets: dict[str, str] = {NodeName.LLM: NodeName.LLM}
     if config.enable_retrieval_gate:
         tools_targets[NodeName.RETRIEVAL_GATE] = NodeName.RETRIEVAL_GATE
-    if config.enable_human_feedback:
-        tools_targets[NodeName.HUMAN_FEEDBACK] = NodeName.HUMAN_FEEDBACK
 
     graph.add_conditional_edges(NodeName.TOOLS, tools_route, tools_targets)
 
     if config.enable_retrieval_gate:
         graph.add_edge(NodeName.RETRIEVAL_GATE, NodeName.LLM)
 
-    if config.enable_human_feedback:
-        graph.add_edge(NodeName.HUMAN_FEEDBACK, END)
-
 
 def build_agent(config: AgentConfig) -> CompiledStateGraph:
-    """Build and compile the agent_v2 graph.
-
-    Topology (LLM as hub):
-        entry → llm
-        llm → rag_profile_router → tools   (RAG tool calls, profile enabled)
-        llm → tools                        (other tool calls)
-        llm → END                          (no tool calls — LLM decides done)
-        tools → retrieval_gate → llm       (RAG batch, gate enabled)
-        tools → human_feedback → END       (clarification tool, feedback enabled)
-        tools → llm                        (web / other)
-    """
+    """Build and compile the agent_v2 graph."""
     tool_box = _resolve_tool_box(config)
     graph = StateGraph(AgentState)
 
@@ -110,4 +102,4 @@ def build_agent(config: AgentConfig) -> CompiledStateGraph:
     graph.set_entry_point(NodeName.LLM)
     _wire_edges(graph, config)
 
-    return graph.compile(checkpointer=config.checkpointer)
+    return graph.compile(checkpointer=_resolve_checkpointer(config))

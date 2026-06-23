@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.graph import END
 
 from agent_v2.builder import build_agent
@@ -122,10 +122,7 @@ class TestRouteAfterTools:
         }
         assert route_after_tools(state, agent_config=_config(llm_stub)) == NodeName.LLM
 
-    def test_clarification_tool_goes_to_human_feedback(
-        self,
-        llm_stub: MagicMock,
-    ) -> None:
+    def test_clarification_batch_goes_to_llm(self, llm_stub: MagicMock) -> None:
         state: AgentState = {
             "messages": [
                 AIMessage(
@@ -138,11 +135,10 @@ class TestRouteAfterTools:
                         }
                     ],
                 ),
-                ToolMessage(content="ok", tool_call_id="c1"),
+                ToolMessage(content="user reply", tool_call_id="c1"),
             ]
         }
-        config = _config(llm_stub, enable_human_feedback=True)
-        assert route_after_tools(state, agent_config=config) == NodeName.HUMAN_FEEDBACK
+        assert route_after_tools(state, agent_config=_config(llm_stub)) == NodeName.LLM
 
 
 class TestBuildAgent:

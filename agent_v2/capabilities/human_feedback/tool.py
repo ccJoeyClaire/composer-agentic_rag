@@ -1,22 +1,22 @@
-"""Clarification tool — LLM calls this when it wants human input."""
+"""Clarification tool — LLM calls this to pause for human input via LangGraph interrupt."""
 
 from __future__ import annotations
+
+from langgraph.types import interrupt
 
 CLARIFICATION_TOOL_NAME = "request_clarification"
 
 
-def request_clarification(
-    question: str,
-    timing: str = "pre_retrieval",
-) -> str:
-    """Ask the user for clarification before continuing.
+def request_clarification(question: str, timing: str = "pre_retrieval") -> str:
+    """Pause the graph and ask the user for clarification.
 
-    Args:
-        question: The clarification question to show the user.
-        timing: ``pre_retrieval`` or ``pre_answer`` — when in the flow the
-            LLM decided clarification is needed.
-
-    Returns:
-        Acknowledgement string (actual UX handled by ``human_feedback_node``).
+    Resume with ``Command(resume=...)``; the value becomes the tool result.
     """
-    return f"clarification_requested:{timing}:{question}"
+    user_answer = interrupt(
+        {
+            "type": "clarification",
+            "question": question,
+            "timing": timing,
+        }
+    )
+    return str(user_answer)

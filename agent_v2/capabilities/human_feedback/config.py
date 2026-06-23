@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from llm.client import LLMClient
-
 
 @dataclass
 class HumanFeedbackConfig:
-    """Settings for LLM-initiated clarification (optional tool + post-processor)."""
+    """Placeholder for future human-feedback settings."""
 
-    llm: LLMClient | None = None
+    pass
