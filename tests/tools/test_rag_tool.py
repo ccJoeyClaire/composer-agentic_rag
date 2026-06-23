@@ -13,6 +13,12 @@ from rag.context import (
     reset_rag_context,
 )
 from rag.core import RAGIndexer, RAGRetriever
+from rag.profile_schema import (
+    USE_CONTEXTUAL_KEY,
+    USE_HYDE_KEY,
+    USE_RERANKER_KEY,
+    USE_SMALL_TO_BIG_KEY,
+)
 from rag.retriever.vector_retriever import VectorRetriever
 from tools.LocalTool import RAG_tool
 from tools.registry import TOOL_INFO_ATTR
@@ -127,17 +133,19 @@ def test_full_context_caches_and_clamps_retriever_variants(
         max_recall_n=10,
     )
     ctx = get_active_context()
+    base = {USE_CONTEXTUAL_KEY: False, USE_SMALL_TO_BIG_KEY: False, USE_HYDE_KEY: False, USE_RERANKER_KEY: False}
 
-    r1, _ = ctx.resolve_retriever(use_hyde=False, use_reranker=False, recall_n=5)
-    r2, _ = ctx.resolve_retriever(use_hyde=False, use_reranker=False, recall_n=5)
+    r1, _, _ = ctx.resolve_retriever({**base, "recall_n": 5})
+    r2, _, _ = ctx.resolve_retriever({**base, "recall_n": 5})
     assert r1 is r2
 
-    r3, _ = ctx.resolve_retriever(use_hyde=False, use_reranker=False, recall_n=7)
+    r3, _, _ = ctx.resolve_retriever({**base, "recall_n": 7})
     assert r3 is not r1
 
-    r4, notes = ctx.resolve_retriever(use_hyde=False, use_reranker=False, recall_n=999)
+    r4, notes, eff = ctx.resolve_retriever({**base, "recall_n": 999})
     assert any("clamp" in note for note in notes)
     assert r4.recall_n == 10
+    assert eff["recall_n"] == 10
 
 
 @pytest.mark.unit
@@ -151,10 +159,11 @@ def test_disabled_query_option_emits_note(
         embedder=mock_embedder,
         allow_hyde=False,
     )
-    _, notes = get_active_context().resolve_retriever(
-        use_hyde=True, use_reranker=False, recall_n=None
+    _, notes, eff = get_active_context().resolve_retriever(
+        {USE_HYDE_KEY: True, USE_RERANKER_KEY: False}
     )
     assert any("use_hyde" in note for note in notes)
+    assert eff[USE_HYDE_KEY] is False
 
 
 @pytest.mark.unit
@@ -168,13 +177,13 @@ def test_disabled_predict_questions_emits_note(
         embedder=mock_embedder,
         allow_predict_questions=False,
     )
-    indexer, notes = get_active_context().resolve_indexer(use_predict_questions=True)
+    indexer, notes, _ = get_active_context().resolve_indexer({"use_predict_questions": True})
     assert indexer is not None
     assert any("use_predict_questions" in note for note in notes)
 
 
 @pytest.mark.unit
-def test_bind_rag_context_applies_profile_flags(
+def test_bind_rag_context_seeds_baseline_defaults(
     mock_embedder, in_memory_vector_store, reset_rag_bindings
 ):
     ctx = bind_rag_context(
@@ -184,10 +193,11 @@ def test_bind_rag_context_applies_profile_flags(
         embedder=mock_embedder,
         profile_id="baseline",
     )
-    assert ctx.use_small_to_big is False
-    assert ctx.use_contextual is True
-    assert ctx.allow_hyde is False
-    assert ctx.allow_reranker is True
+    assert ctx.default_search_profile[USE_SMALL_TO_BIG_KEY] is False
+    assert ctx.default_search_profile[USE_CONTEXTUAL_KEY] is True
+    assert ctx.default_search_profile[USE_HYDE_KEY] is False
+    assert ctx.default_search_profile[USE_RERANKER_KEY] is True
+    assert ctx.default_index_profile[USE_CONTEXTUAL_KEY] is True
 
 
 @pytest.mark.integration

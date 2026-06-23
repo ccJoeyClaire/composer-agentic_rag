@@ -1,25 +1,40 @@
-"""RAG profile shape — LLM specifies values in tool-call args; router validates them."""
+"""RAG search profile — canonical shape lives in :mod:`rag.profile_schema`."""
 
 from __future__ import annotations
 
-from typing import NotRequired, TypedDict
+from rag.config import DEFAULT_PROFILE_ID
+from rag.profile_schema import (
+    RECALL_N_KEY,
+    SEARCH_PROFILE_KEYS,
+    TOP_K_KEY,
+    USE_CONTEXTUAL_KEY,
+    USE_HYDE_KEY,
+    USE_RERANKER_KEY,
+    USE_SMALL_TO_BIG_KEY,
+    RagSearchProfile,
+    default_search_profile,
+)
 
-PROFILE_USE_HYDE_KEY = "use_hyde"
-PROFILE_USE_RERANKER_KEY = "use_reranker"
-PROFILE_RECALL_N_KEY = "recall_n"
-PROFILE_TOP_K_KEY = "top_k"
+RagProfile = RagSearchProfile
 
+DEFAULT_RAG_PROFILE: RagProfile = default_search_profile(DEFAULT_PROFILE_ID)
 
-class RagProfile(TypedDict, total=False):
-    """Query-time retrieval options the LLM may attach to a RAG tool call."""
+PROFILE_USE_CONTEXTUAL_KEY = USE_CONTEXTUAL_KEY
+PROFILE_USE_SMALL_TO_BIG_KEY = USE_SMALL_TO_BIG_KEY
+PROFILE_USE_HYDE_KEY = USE_HYDE_KEY
+PROFILE_USE_RERANKER_KEY = USE_RERANKER_KEY
+PROFILE_RECALL_N_KEY = RECALL_N_KEY
+PROFILE_TOP_K_KEY = TOP_K_KEY
 
-    use_hyde: bool
-    use_reranker: bool
-    recall_n: int
-    top_k: int
-
-
-DEFAULT_RAG_PROFILE: RagProfile = {
-    PROFILE_USE_HYDE_KEY: False,
-    PROFILE_USE_RERANKER_KEY: True,
-}
+__all__ = [
+    "DEFAULT_PROFILE_ID",
+    "DEFAULT_RAG_PROFILE",
+    "PROFILE_RECALL_N_KEY",
+    "PROFILE_TOP_K_KEY",
+    "PROFILE_USE_CONTEXTUAL_KEY",
+    "PROFILE_USE_HYDE_KEY",
+    "PROFILE_USE_RERANKER_KEY",
+    "PROFILE_USE_SMALL_TO_BIG_KEY",
+    "RagProfile",
+    "SEARCH_PROFILE_KEYS",
+]

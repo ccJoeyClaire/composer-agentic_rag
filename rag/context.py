@@ -1,4 +1,4 @@
-"""RAG deployment binding: shared store/embedder, profile flags, retriever/indexer cache.
+"""RAG deployment binding: shared store/embedder, profile defaults, variant cache.
 
 Run (from repo root):
   python -c "from rag.context import bind_rag_context; bind_rag_context(collection='demo', in_memory=True)"
@@ -15,35 +15,50 @@ from rag.build import (
     build_RAG_indexer,
     build_RAG_retriever,
 )
-from rag.config import get_profile, get_rag_config
+from rag.config import DEFAULT_PROFILE_ID, get_rag_config
 from rag.core import RAGIndexer, RAGRetriever
 from rag.embedder.openai_embedder import OpenAIEmbedder
+from rag.profile_schema import (
+    RECALL_N_KEY,
+    TOP_K_KEY,
+    USE_CONTEXTUAL_KEY,
+    USE_HYDE_KEY,
+    USE_PREDICT_QUESTIONS_KEY,
+    USE_RERANKER_KEY,
+    USE_SMALL_TO_BIG_KEY,
+    USE_TOKEN_CHUNKER_KEY,
+    RagIndexProfile,
+    RagSearchProfile,
+    default_index_profile,
+    default_search_profile,
+    normalize_index_profile,
+    normalize_search_profile,
+)
 from rag.store.qdrant_store import QdrantVectorStore
 
-_RetrieverKey = Tuple[bool, bool, int]  # (use_hyde, use_reranker, recall_n)
-_IndexerKey = bool  # use_predict_questions
+_RetrieverKey = Tuple[bool, bool, bool, bool, int]
+_IndexerKey = Tuple[bool, bool, bool, bool]
 
-
-def _resolve_flag(explicit: bool | None, *, from_profile: bool | None, default: bool) -> bool:
-    if explicit is not None:
-        return explicit
-    if from_profile is not None:
-        return from_profile
-    return default
+_SEARCH_OPTION_LABELS = (
+    USE_CONTEXTUAL_KEY,
+    USE_SMALL_TO_BIG_KEY,
+    USE_HYDE_KEY,
+    USE_RERANKER_KEY,
+)
 
 
 @dataclass
 class RagToolContext:
     """Runtime binding for RAG tools and agent bootstrap.
 
-    Holds a shared ``store`` + ``embedder``, index-coupled settings
-    (``use_small_to_big`` / ``use_contextual``), query-time allow-range gates,
-    and lazy caches of built retriever/indexer variants. Two binding modes:
+    Holds shared ``store`` + ``embedder``, per-deployment defaults (from a yaml
+    profile id), allow-range gates, and lazy caches of built variants. Pipeline
+    bools are chosen per tool call — index and search need not align.
 
-    - Full (``bind_rag_context``): ``store`` + ``embedder`` present; query-time
-      variants are built and cached on demand.
+    - Full (``bind_rag_context``): ``store`` + ``embedder`` present; variants
+      built and cached on demand from each call's profile.
     - Legacy (``bind_indexer`` / ``bind_retriever``): a prebuilt object is pinned;
-      runtime option requests yield explanatory notes instead of rebuilding.
+      option requests yield explanatory notes instead of rebuilding.
     """
 
     collection: str = "rag"
@@ -51,22 +66,21 @@ class RagToolContext:
     store: Optional[QdrantVectorStore] = None
     embedder: Optional[OpenAIEmbedder] = None
 
-    use_small_to_big: bool = False
-    use_contextual: bool = False
+    default_search_profile: RagSearchProfile = field(
+        default_factory=default_search_profile
+    )
+    default_index_profile: RagIndexProfile = field(default_factory=default_index_profile)
 
+    allow_token_chunker: bool = True
+    allow_contextual: bool = True
+    allow_small_to_big: bool = True
+    allow_predict_questions: bool = True
     allow_hyde: bool = True
     allow_reranker: bool = True
-    default_recall_n: int = field(
-        default_factory=lambda: get_rag_config().retriever.recall_n
-    )
     max_recall_n: int = field(
         default_factory=lambda: get_rag_config().retriever.recall_n
     )
-    default_top_k: int = field(
-        default_factory=lambda: get_rag_config().retriever.top_k
-    )
-
-    allow_predict_questions: bool = True
+    max_top_k: int | None = None
 
     fixed_retriever: Optional[RAGRetriever] = None
     fixed_indexer: Optional[RAGIndexer] = None
@@ -80,96 +94,111 @@ class RagToolContext:
 
     def resolve_retriever(
         self,
-        *,
-        use_hyde: bool,
-        use_reranker: bool,
-        recall_n: Optional[int],
-    ) -> Tuple[Optional[RAGRetriever], List[str]]:
-        """Return a retriever for the requested options plus any fallback notes."""
+        profile: RagSearchProfile | None = None,
+    ) -> Tuple[Optional[RAGRetriever], List[str], RagSearchProfile]:
+        """Return a retriever, notes, and the effective normalized search profile."""
         notes: List[str] = []
 
         if not self.can_build:
             if self.fixed_retriever is None:
-                return None, notes
-            for label, requested in (("use_hyde", use_hyde), ("use_reranker", use_reranker)):
-                if requested:
-                    notes.append(
-                        f"{label} requested but this deployment uses a fixed retriever; ran without it."
-                    )
-            if recall_n is not None:
-                notes.append("recall_n requested but a fixed retriever is bound; ignored.")
-            return self.fixed_retriever, notes
+                return None, notes, dict(self.default_search_profile)
+            if profile:
+                for label in _SEARCH_OPTION_LABELS:
+                    if profile.get(label):
+                        notes.append(
+                            f"{label} requested but this deployment uses a fixed retriever; ran without it."
+                        )
+                if RECALL_N_KEY in profile:
+                    notes.append("recall_n requested but a fixed retriever is bound; ignored.")
+            return self.fixed_retriever, notes, dict(self.default_search_profile)
 
-        eff_hyde = use_hyde
-        if use_hyde and not self.allow_hyde:
-            eff_hyde = False
-            notes.append("use_hyde is disabled in this deployment; ran without it.")
+        eff, norm_notes = normalize_search_profile(
+            profile,
+            defaults=self.default_search_profile,
+            allow_contextual=self.allow_contextual,
+            allow_small_to_big=self.allow_small_to_big,
+            allow_hyde=self.allow_hyde,
+            allow_reranker=self.allow_reranker,
+            max_recall_n=self.max_recall_n,
+            max_top_k=self.max_top_k,
+        )
+        notes.extend(norm_notes)
 
-        eff_reranker = use_reranker
-        if use_reranker and not self.allow_reranker:
-            eff_reranker = False
-            notes.append("use_reranker is disabled in this deployment; ran without it.")
-
-        eff_recall = self.default_recall_n if recall_n is None else recall_n
-        if eff_recall < 1:
-            eff_recall = 1
-        if eff_recall > self.max_recall_n:
-            notes.append(
-                f"recall_n {eff_recall} exceeds max {self.max_recall_n}; clamped."
-            )
-            eff_recall = self.max_recall_n
-
-        key: _RetrieverKey = (eff_hyde, eff_reranker, eff_recall)
+        key: _RetrieverKey = (
+            bool(eff.get(USE_CONTEXTUAL_KEY)),
+            bool(eff.get(USE_SMALL_TO_BIG_KEY)),
+            bool(eff.get(USE_HYDE_KEY)),
+            bool(eff.get(USE_RERANKER_KEY)),
+            int(eff[RECALL_N_KEY]),
+        )
         retriever = self._retriever_cache.get(key)
         if retriever is None:
             retriever = build_RAG_retriever(
                 self.collection,
                 in_memory=self.in_memory,
-                use_reranker=eff_reranker,
-                use_contextual=self.use_contextual,
-                use_hyde=eff_hyde,
-                use_small_to_big=self.use_small_to_big,
-                recall_n=eff_recall,
+                use_reranker=bool(eff.get(USE_RERANKER_KEY)),
+                use_contextual=bool(eff.get(USE_CONTEXTUAL_KEY)),
+                use_hyde=bool(eff.get(USE_HYDE_KEY)),
+                use_small_to_big=bool(eff.get(USE_SMALL_TO_BIG_KEY)),
+                recall_n=int(eff[RECALL_N_KEY]),
                 store=self.store,
                 embedder=self.embedder,
             )
             self._retriever_cache[key] = retriever
-        return retriever, notes
+        return retriever, notes, eff
 
     def resolve_indexer(
         self,
-        *,
-        use_predict_questions: bool,
-    ) -> Tuple[Optional[RAGIndexer], List[str]]:
+        profile: RagIndexProfile | None = None,
+    ) -> Tuple[Optional[RAGIndexer], List[str], RagIndexProfile]:
         notes: List[str] = []
 
         if not self.can_build:
             if self.fixed_indexer is None:
-                return None, notes
-            if use_predict_questions:
-                notes.append(
-                    "use_predict_questions requested but a fixed indexer is bound; ignored."
-                )
-            return self.fixed_indexer, notes
+                return None, notes, dict(self.default_index_profile)
+            if profile:
+                for label in (
+                    USE_TOKEN_CHUNKER_KEY,
+                    USE_CONTEXTUAL_KEY,
+                    USE_SMALL_TO_BIG_KEY,
+                    USE_PREDICT_QUESTIONS_KEY,
+                ):
+                    if profile.get(label):
+                        notes.append(
+                            f"{label} requested but a fixed indexer is bound; ignored."
+                        )
+            return self.fixed_indexer, notes, dict(self.default_index_profile)
 
-        eff_predict = use_predict_questions
-        if use_predict_questions and not self.allow_predict_questions:
-            eff_predict = False
-            notes.append("use_predict_questions is disabled in this deployment; ran without it.")
+        eff, norm_notes = normalize_index_profile(
+            profile,
+            defaults=self.default_index_profile,
+            allow_token_chunker=self.allow_token_chunker,
+            allow_contextual=self.allow_contextual,
+            allow_small_to_big=self.allow_small_to_big,
+            allow_predict_questions=self.allow_predict_questions,
+        )
+        notes.extend(norm_notes)
 
-        indexer = self._indexer_cache.get(eff_predict)
+        key: _IndexerKey = (
+            bool(eff.get(USE_TOKEN_CHUNKER_KEY)),
+            bool(eff.get(USE_CONTEXTUAL_KEY)),
+            bool(eff.get(USE_SMALL_TO_BIG_KEY)),
+            bool(eff.get(USE_PREDICT_QUESTIONS_KEY)),
+        )
+        indexer = self._indexer_cache.get(key)
         if indexer is None:
             indexer = build_RAG_indexer(
                 self.collection,
                 in_memory=self.in_memory,
-                use_contextual=self.use_contextual,
-                use_predict_questions=eff_predict,
-                use_small_to_big=self.use_small_to_big,
+                use_token_chunker=bool(eff.get(USE_TOKEN_CHUNKER_KEY)),
+                use_contextual=bool(eff.get(USE_CONTEXTUAL_KEY)),
+                use_predict_questions=bool(eff.get(USE_PREDICT_QUESTIONS_KEY)),
+                use_small_to_big=bool(eff.get(USE_SMALL_TO_BIG_KEY)),
                 store=self.store,
                 embedder=self.embedder,
             )
-            self._indexer_cache[eff_predict] = indexer
-        return indexer, notes
+            self._indexer_cache[key] = indexer
+        return indexer, notes, eff
 
 
 _active_context: RagToolContext = RagToolContext()
@@ -191,76 +220,56 @@ def bind_rag_context(
     *,
     collection: str,
     in_memory: bool = False,
-    profile_id: str | None = None,
-    use_small_to_big: bool | None = None,
-    use_contextual: bool | None = None,
-    allow_hyde: bool | None = None,
-    allow_reranker: bool | None = None,
+    profile_id: str = DEFAULT_PROFILE_ID,
     default_top_k: int | None = None,
     default_recall_n: int | None = None,
     max_recall_n: int | None = None,
-    allow_predict_questions: bool | None = None,
+    max_top_k: int | None = None,
+    allow_token_chunker: bool = True,
+    allow_contextual: bool = True,
+    allow_small_to_big: bool = True,
+    allow_predict_questions: bool = True,
+    allow_hyde: bool = True,
+    allow_reranker: bool = True,
     store: Optional[QdrantVectorStore] = None,
     embedder: Optional[OpenAIEmbedder] = None,
 ) -> RagToolContext:
-    """Bind shared store/embedder plus deployment allow-range for RAG tools.
+    """Bind shared store/embedder plus deployment defaults and allow-range gates.
 
-    When ``profile_id`` is set, index-coupled flags and allow-range defaults are
-    taken from ``arg_config.yaml`` → ``profiles.<id>`` unless overridden explicitly.
-
-    Query-time options (``use_hyde`` / ``use_reranker`` / ``recall_n`` / ``top_k``)
-    remain runtime-selectable within the allow-range; index-coupled settings are
-    fixed here and shared by both index and search tools.
+    Default search/index bools come from ``arg_config.yaml`` → ``profiles.<id>``
+    (default ``baseline``). Each tool call may override any pipeline flag; index
+    and search profiles are independent.
     """
     global _active_context
-
-    profile = get_profile(get_rag_config(), profile_id) if profile_id is not None else None
-    profile_flags = profile if profile is not None else None
 
     shared_embedder = _make_embedder(embedder)
     shared_store = _make_store(collection, in_memory=in_memory, store=store)
     retriever_cfg = get_rag_config().retriever
-    resolved_top_k = default_top_k if default_top_k is not None else retriever_cfg.top_k
-    resolved_recall_n = (
-        default_recall_n if default_recall_n is not None else retriever_cfg.recall_n
-    )
     resolved_max_recall = (
-        max_recall_n if max_recall_n is not None else resolved_recall_n
+        max_recall_n if max_recall_n is not None else retriever_cfg.recall_n
     )
+
+    search_defaults = default_search_profile(profile_id)
+    if default_recall_n is not None:
+        search_defaults[RECALL_N_KEY] = default_recall_n
+    if default_top_k is not None:
+        search_defaults[TOP_K_KEY] = default_top_k
 
     _active_context = RagToolContext(
         collection=collection,
         in_memory=in_memory,
         store=shared_store,
         embedder=shared_embedder,
-        use_small_to_big=_resolve_flag(
-            use_small_to_big,
-            from_profile=profile_flags.use_small_to_big if profile_flags else None,
-            default=False,
-        ),
-        use_contextual=_resolve_flag(
-            use_contextual,
-            from_profile=profile_flags.use_contextual if profile_flags else None,
-            default=False,
-        ),
-        allow_hyde=_resolve_flag(
-            allow_hyde,
-            from_profile=profile_flags.use_hyde if profile_flags else None,
-            default=True,
-        ),
-        allow_reranker=_resolve_flag(
-            allow_reranker,
-            from_profile=profile_flags.use_reranker if profile_flags else None,
-            default=True,
-        ),
-        default_recall_n=resolved_recall_n,
+        default_search_profile=search_defaults,
+        default_index_profile=default_index_profile(profile_id),
+        allow_token_chunker=allow_token_chunker,
+        allow_contextual=allow_contextual,
+        allow_small_to_big=allow_small_to_big,
+        allow_predict_questions=allow_predict_questions,
+        allow_hyde=allow_hyde,
+        allow_reranker=allow_reranker,
         max_recall_n=resolved_max_recall,
-        default_top_k=resolved_top_k,
-        allow_predict_questions=_resolve_flag(
-            allow_predict_questions,
-            from_profile=profile_flags.use_predict_questions if profile_flags else None,
-            default=True,
-        ),
+        max_top_k=max_top_k,
     )
     return _active_context
 
@@ -274,4 +283,6 @@ def bind_retriever(retriever: RAGRetriever, *, top_k: int | None = None) -> None
     """Legacy: pin a prebuilt retriever onto the active context (options ignored)."""
     ctx = get_active_context()
     ctx.fixed_retriever = retriever
-    ctx.default_top_k = top_k if top_k is not None else get_rag_config().retriever.top_k
+    if top_k is not None:
+        ctx.default_search_profile = dict(ctx.default_search_profile)
+        ctx.default_search_profile[TOP_K_KEY] = top_k

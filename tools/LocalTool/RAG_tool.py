@@ -19,6 +19,11 @@ from rag.context import (
     bind_retriever,
     get_active_context,
 )
+from rag.profile_schema import (
+    TOP_K_KEY,
+    index_profile_from_optional_args,
+    search_profile_from_optional_args,
+)
 from tools.registry import local_tool
 
 __all__ = [
@@ -56,14 +61,32 @@ def _append_notes(body: str, notes: List[str]) -> str:
 def RAG_index_tool(
     text: Annotated[str, Field(description="待入库正文")],
     source: Annotated[str, Field(description="文档来源标识")],
+    use_token_chunker: Annotated[
+        bool | None,
+        Field(description="是否用 TokenChunker 硬切（留空用部署默认 profile）"),
+    ] = None,
+    use_contextual: Annotated[
+        bool | None,
+        Field(description="是否启用 ContextualEnricher（留空用部署默认 profile）"),
+    ] = None,
+    use_small_to_big: Annotated[
+        bool | None,
+        Field(description="是否启用 small-to-big 索引（留空用部署默认 profile）"),
+    ] = None,
     use_predict_questions: Annotated[
-        bool,
-        Field(description="是否为每个 chunk 生成预设问题以增强召回（仅影响索引，不影响检索结构）"),
-    ] = False,
+        bool | None,
+        Field(description="是否为每个 chunk 生成预设问题（留空用部署默认 profile）"),
+    ] = None,
 ) -> str:
     """Index document text into the knowledge base."""
     ctx = get_active_context()
-    indexer, notes = ctx.resolve_indexer(use_predict_questions=use_predict_questions)
+    profile = index_profile_from_optional_args(
+        use_token_chunker=use_token_chunker,
+        use_contextual=use_contextual,
+        use_small_to_big=use_small_to_big,
+        use_predict_questions=use_predict_questions,
+    )
+    indexer, notes, _ = ctx.resolve_indexer(profile)
     if indexer is None:
         return "RAG indexer not bound. Call bind_rag_context() or bind_indexer() at startup."
     ok = _run_async(indexer.aindex(text, source=source))
@@ -78,34 +101,50 @@ def RAG_index_tool(
 @local_tool
 def RAG_search_tool(
     query: Annotated[str, Field(description="检索问题")],
+    use_contextual: Annotated[
+        bool | None,
+        Field(description="查询期是否拼接 contextual header（留空用部署默认 profile）"),
+    ] = None,
+    use_small_to_big: Annotated[
+        bool | None,
+        Field(description="查询期是否 small-to-big 召回 parent（留空用部署默认 profile）"),
+    ] = None,
     use_hyde: Annotated[
-        bool, Field(description="是否用 HyDE 改写查询向量（查询期，可运行时切换）")
-    ] = False,
+        bool | None,
+        Field(description="是否用 HyDE 改写查询向量（留空用部署默认 profile）"),
+    ] = None,
     use_reranker: Annotated[
-        bool, Field(description="是否挂载 CrossEncoder 精排（查询期，可运行时切换）")
-    ] = False,
+        bool | None,
+        Field(description="是否挂载 CrossEncoder 精排（留空用部署默认 profile）"),
+    ] = None,
     recall_n: Annotated[
-        Optional[int], Field(description="rerank 前的向量召回条数，留空用默认", ge=1)
+        Optional[int],
+        Field(description="rerank 前的向量召回条数，留空用部署默认", ge=1),
     ] = None,
     top_k: Annotated[
-        Optional[int], Field(description="返回的 chunk 数，留空用默认", ge=1)
+        Optional[int],
+        Field(description="返回的 chunk 数，留空用部署默认", ge=1),
     ] = None,
 ) -> str:
     """Search the knowledge base and return relevant context.
 
-    Query-time modes (use_hyde / use_reranker / recall_n / top_k) are selectable
-    per call within the deployment's allowed range; index-coupled modes are fixed.
+    All pipeline bools are selectable per call within the deployment allow-range.
+    Omitted args fall back to the bound profile defaults (``baseline`` by default).
+    Index and search options need not match.
     """
     ctx = get_active_context()
-    retriever, notes = ctx.resolve_retriever(
+    profile = search_profile_from_optional_args(
+        use_contextual=use_contextual,
+        use_small_to_big=use_small_to_big,
         use_hyde=use_hyde,
         use_reranker=use_reranker,
         recall_n=recall_n,
+        top_k=top_k,
     )
+    retriever, notes, eff = ctx.resolve_retriever(profile)
     if retriever is None:
         return "RAG retriever not bound. Call bind_rag_context() or bind_retriever() at startup."
 
-    effective_top_k = top_k if top_k is not None else ctx.default_top_k
-    chunks = _run_async(retriever.aquery(query, top_k=effective_top_k))
+    chunks = _run_async(retriever.aquery(query, top_k=eff[TOP_K_KEY]))
     body = "\n\n---\n\n".join(c.content for c in chunks)
     return _append_notes(body, notes)
