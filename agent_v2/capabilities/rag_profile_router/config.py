@@ -1,4 +1,4 @@
-"""Rag profile capability configuration."""
+"""Rag profile router capability configuration."""
 
 from __future__ import annotations
 
@@ -7,12 +7,12 @@ from dataclasses import dataclass
 from rag.config import DEFAULT_PROFILE_ID, get_rag_config
 from rag.profile_schema import RagSearchProfile, default_search_profile
 
-from agent_v2.capabilities.rag_profile.profile import RagProfile
+from agent_v2.capabilities.rag_profile_router.profile import RagProfile
 
 
 @dataclass
-class RagProfileConfig:
-    """Settings for validating LLM-specified RAG search profiles."""
+class RagProfileRouterConfig:
+    """Settings for validating LLM-specified RAG search profile overrides."""
 
     profile_id: str = DEFAULT_PROFILE_ID
     default_profile: RagProfile | None = None

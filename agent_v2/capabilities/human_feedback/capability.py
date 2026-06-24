@@ -11,8 +11,6 @@ from agent_v2.capabilities.human_feedback.tool import (
 class HumanFeedbackCapability:
     """Optional ``request_clarification`` tool; LLM decides when to call it."""
 
-    name = "human_feedback"
-
     @staticmethod
     def extra_tools() -> dict[str, object]:
         return {CLARIFICATION_TOOL_NAME: request_clarification}

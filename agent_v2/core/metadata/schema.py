@@ -5,14 +5,14 @@ from __future__ import annotations
 from typing import TypedDict
 
 from agent_v2.capabilities.human_feedback.metadata import HumanFeedbackMeta
-from agent_v2.capabilities.rag_profile.metadata import RagProfileMeta
+from agent_v2.capabilities.rag_profile_router.metadata import RagProfileRouterMeta
 from agent_v2.capabilities.retrieval_gate.metadata import RetrievalGateMeta
 from agent_v2.core.metadata.base import RagInvocationMeta
 
 
 class AgentMetadata(
     RagInvocationMeta,
-    RagProfileMeta,
+    RagProfileRouterMeta,
     RetrievalGateMeta,
     HumanFeedbackMeta,
     total=False,

@@ -1,4 +1,4 @@
-"""Apply LLM-specified RAG profile from tool-call args."""
+"""Apply LLM-specified RAG profile overrides from tool-call args."""
 
 from __future__ import annotations
 
@@ -10,13 +10,13 @@ from rag.profile_schema import (
     normalize_search_profile,
 )
 
-from agent_v2.capabilities.rag_profile.config import RagProfileConfig
-from agent_v2.capabilities.rag_profile.metadata import (
+from agent_v2.capabilities.rag_profile_router.config import RagProfileRouterConfig
+from agent_v2.capabilities.rag_profile_router.metadata import (
     PROFILE_REASON_KEY,
     PROFILE_SELECTED_KEY,
     PROFILE_VALIDATED_KEY,
 )
-from agent_v2.capabilities.rag_profile.profile import RagProfile
+from agent_v2.capabilities.rag_profile_router.profile import RagProfile
 from agent_v2.config import AgentConfig
 from agent_v2.core.edges.tool_calls import (
     has_rag_tool_call,
@@ -42,7 +42,7 @@ def _extract_profile_from_args(args: dict[str, Any]) -> RagSearchProfile:
 
 def _validate_profile(
     profile: RagSearchProfile,
-    config: RagProfileConfig,
+    config: RagProfileRouterConfig,
 ) -> RagProfile:
     """Merge defaults, apply deployment gates, and clamp numeric fields."""
     validated, _ = normalize_search_profile(
@@ -62,11 +62,12 @@ async def rag_profile_router_node(
     state: AgentState,
     *,
     agent_config: AgentConfig,
-    capability_config: RagProfileConfig,
+    capability_config: RagProfileRouterConfig,
 ) -> dict[str, object]:
-    """Read RAG profile + query from the LLM's tool call; write metadata.
+    """Read RAG profile overrides + query from the LLM's tool call; write metadata.
 
-    Does not choose the profile — the LLM already did in ``tool_calls``.
+    Only runs when ``enable_rag_profile_router`` is on — the LLM may override
+    pipeline flags beyond ``query`` in that mode.
     """
     ai_msg = last_ai_message(state["messages"])
     if ai_msg is None:

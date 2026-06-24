@@ -36,7 +36,7 @@ class TestRouteAfterLlm:
         }
         assert route_after_llm(state, agent_config=_config(llm_stub)) == END
 
-    def test_rag_tool_calls_with_profile_enabled(self, llm_stub: MagicMock) -> None:
+    def test_rag_tool_calls_with_router_enabled(self, llm_stub: MagicMock) -> None:
         state: AgentState = {
             "messages": [
                 AIMessage(
@@ -51,10 +51,10 @@ class TestRouteAfterLlm:
                 )
             ]
         }
-        config = _config(llm_stub, enable_rag_profile=True)
+        config = _config(llm_stub, enable_rag_profile_router=True)
         assert route_after_llm(state, agent_config=config) == NodeName.RAG_PROFILE_ROUTER
 
-    def test_rag_tool_calls_profile_disabled_goes_to_tools(
+    def test_rag_tool_calls_router_disabled_goes_to_tools(
         self,
         llm_stub: MagicMock,
     ) -> None:
@@ -146,11 +146,11 @@ class TestBuildAgent:
         "kwargs",
         [
             {},
-            {"enable_rag_profile": True},
+            {"enable_rag_profile_router": True},
             {"enable_retrieval_gate": True},
             {"enable_human_feedback": True},
             {
-                "enable_rag_profile": True,
+                "enable_rag_profile_router": True,
                 "enable_retrieval_gate": True,
                 "enable_human_feedback": True,
             },

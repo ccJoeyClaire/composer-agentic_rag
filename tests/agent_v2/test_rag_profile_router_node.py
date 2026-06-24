@@ -1,17 +1,17 @@
-"""Tests for agent_v2 rag_profile router validation."""
+"""Tests for agent_v2 rag_profile_router validation."""
 
 from __future__ import annotations
 
 import pytest
 from langchain_core.messages import AIMessage
 
-from agent_v2.capabilities.rag_profile.config import RagProfileConfig
-from agent_v2.capabilities.rag_profile.node import (
+from agent_v2.capabilities.rag_profile_router.config import RagProfileRouterConfig
+from agent_v2.capabilities.rag_profile_router.node import (
     _extract_profile_from_args,
     _validate_profile,
     rag_profile_router_node,
 )
-from agent_v2.capabilities.rag_profile.profile import (
+from agent_v2.capabilities.rag_profile_router.profile import (
     PROFILE_USE_CONTEXTUAL_KEY,
     PROFILE_USE_HYDE_KEY,
     PROFILE_USE_RERANKER_KEY,
@@ -60,19 +60,19 @@ class TestExtractProfileFromArgs:
 
 class TestValidateProfile:
     def test_merges_baseline_defaults_when_args_empty(self) -> None:
-        config = RagProfileConfig(profile_id="baseline")
+        config = RagProfileRouterConfig(profile_id="baseline")
         validated = _validate_profile({}, config)
         assert validated[PROFILE_USE_CONTEXTUAL_KEY] is True
         assert validated[PROFILE_USE_RERANKER_KEY] is True
         assert validated[PROFILE_USE_HYDE_KEY] is False
 
     def test_clamps_recall_n(self) -> None:
-        config = RagProfileConfig(max_recall_n=10)
+        config = RagProfileRouterConfig(max_recall_n=10)
         validated = _validate_profile({"recall_n": 999}, config)
         assert validated["recall_n"] == 10
 
     def test_disables_gated_bool(self) -> None:
-        config = RagProfileConfig(allow_hyde=False)
+        config = RagProfileRouterConfig(allow_hyde=False)
         validated = _validate_profile({PROFILE_USE_HYDE_KEY: True}, config)
         assert validated[PROFILE_USE_HYDE_KEY] is False
 
@@ -98,8 +98,8 @@ async def test_rag_profile_router_writes_metadata(llm_stub) -> None:
         ],
         "metadata": {},
     }
-    agent_config = AgentConfig(llm=llm_stub, enable_rag_profile=True)
-    capability_config = RagProfileConfig(profile_id="baseline")
+    agent_config = AgentConfig(llm=llm_stub, enable_rag_profile_router=True)
+    capability_config = RagProfileRouterConfig(profile_id="baseline")
 
     update = await rag_profile_router_node(
         state,

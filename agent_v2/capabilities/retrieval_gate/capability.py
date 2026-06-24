@@ -15,8 +15,6 @@ from agent_v2.core.edges.names import NodeName
 class RetrievalGateCapability:
     """Post-RAG quality gate — reports issues; does not auto-requery or web-search."""
 
-    name = "retrieval_gate"
-
     def register(self, graph: StateGraph, config: AgentConfig) -> None:
         capability_config = config.retrieval_gate or RetrievalGateConfig()
         graph.add_node(

@@ -8,7 +8,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from agent_v2.capabilities.human_feedback.capability import HumanFeedbackCapability
-from agent_v2.capabilities.rag_profile.capability import RagProfileCapability
+from agent_v2.capabilities.rag_profile_router.capability import RagProfileRouterCapability
 from agent_v2.capabilities.retrieval_gate.capability import RetrievalGateCapability
 from agent_v2.config import AgentConfig
 from agent_v2.core.edges.after_llm import route_after_llm
@@ -32,6 +32,8 @@ def _resolve_tool_box(config: AgentConfig) -> AgentToolBox:
         inner=inner,
         enable_web_search=config.enable_web_search,
         web_tool_name=config.web_tool_name,
+        enable_rag_profile_router=config.enable_rag_profile_router,
+        rag_tool_name=config.rag_tool_name,
         extra_tools=extra_tools,
     )
 
@@ -47,8 +49,8 @@ def _resolve_checkpointer(config: AgentConfig) -> object | None:
 
 
 def _register_capabilities(graph: StateGraph, config: AgentConfig) -> None:
-    if config.enable_rag_profile:
-        RagProfileCapability().register(graph, config)
+    if config.enable_rag_profile_router:
+        RagProfileRouterCapability().register(graph, config)
     if config.enable_retrieval_gate:
         RetrievalGateCapability().register(graph, config)
 
@@ -61,12 +63,12 @@ def _wire_edges(graph: StateGraph, config: AgentConfig) -> None:
         NodeName.TOOLS: NodeName.TOOLS,
         END: END,
     }
-    if config.enable_rag_profile:
+    if config.enable_rag_profile_router:
         llm_targets[NodeName.RAG_PROFILE_ROUTER] = NodeName.RAG_PROFILE_ROUTER
 
     graph.add_conditional_edges(NodeName.LLM, llm_route, llm_targets)
 
-    if config.enable_rag_profile:
+    if config.enable_rag_profile_router:
         graph.add_edge(NodeName.RAG_PROFILE_ROUTER, NodeName.TOOLS)
 
     tools_targets: dict[str, str] = {NodeName.LLM: NodeName.LLM}

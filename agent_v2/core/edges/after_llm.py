@@ -17,7 +17,7 @@ from agent_v2.core.state import AgentState
 def route_after_llm(state: AgentState, *, agent_config: AgentConfig) -> str:
     """Route from ``llm`` based on the latest AIMessage.
 
-    - RAG tool calls + profile capability → ``rag_profile_router``
+    - RAG tool calls + profile router enabled → ``rag_profile_router``
     - Other tool calls → ``tools``
     - No tool calls → ``END`` (LLM decides the turn is done; no forced feedback)
     """
@@ -29,7 +29,7 @@ def route_after_llm(state: AgentState, *, agent_config: AgentConfig) -> str:
     if not tool_calls:
         return END
 
-    if agent_config.enable_rag_profile and has_rag_tool_call(
+    if agent_config.enable_rag_profile_router and has_rag_tool_call(
         tool_calls,
         rag_tool_name=agent_config.rag_tool_name,
     ):
