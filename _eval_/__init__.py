@@ -2,6 +2,7 @@
 
 Layout (lifecycle)::
 
+    configs/          — per-dataset rag_eval_arg_config_*.yaml overrides
     data_preparing/   — corpus, queries, qrels, pooled subset
     scoring/          — Recall@k / MRR@k / nDCG@k
     rag_eval/         — RAG profile comparison (pipeline + run)

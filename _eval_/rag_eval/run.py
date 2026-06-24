@@ -99,7 +99,10 @@ def main() -> None:
     parser.add_argument(
         "--config",
         default=None,
-        help="Path to rag_eval YAML (default: rag_eval_arg_config.yaml at repo root)",
+        help=(
+            "Path to rag_eval YAML (default: rag_eval_arg_config.yaml at repo root; "
+            "dataset overrides in _eval_/configs/)"
+        ),
     )
     parser.add_argument(
         "--no-recreate",
