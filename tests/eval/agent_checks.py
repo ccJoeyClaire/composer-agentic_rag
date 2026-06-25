@@ -8,11 +8,11 @@ from typing import Any
 from langchain_core.messages import HumanMessage
 from unittest.mock import AsyncMock, MagicMock
 
-from agent.graph import AgentConfig, build_agent
-from agent.reflection.feedback import detect_feedback_node, route_after_detect
-from agent.reflection.self_rag import self_rag_pre_node
-from agent.state import AgentState
-from agent.subgraph.CRAG import compute_verdict, decide_action
+from legacy.agent.graph import AgentConfig, build_agent
+from legacy.agent.reflection.feedback import detect_feedback_node, route_after_detect
+from legacy.agent.reflection.self_rag import self_rag_pre_node
+from legacy.agent.state import AgentState
+from legacy.agent.subgraph.CRAG import compute_verdict, decide_action
 
 
 def _mock_llm_response(payload: dict) -> MagicMock:

@@ -113,11 +113,11 @@ class _FakeToolBox:
         return ToolResult(name=name, args=args, output="ok")
 ```
 
-参见 `tests/agent/test_graph_and_nodes.py`。
+参见 `tests/legacy_agent/test_graph_and_nodes.py`（旧版图）或 `tests/agent/test_builder.py`（新版图）。
 
 ### 4.3 AIMessage 的 tool_calls 格式
 
-与 `agent/nodes.py` 一致：
+与 `legacy/agent/nodes.py`（旧版）或 `agent/core/nodes/llm.py`（新版）一致：
 
 ```python
 AIMessage(

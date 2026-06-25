@@ -16,7 +16,7 @@ from typing import Awaitable, Callable
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
-from agent.state import (
+from legacy.agent.state import (
     DEFAULT_MAX_RAG_ATTEMPTS,
     AgentMetadata,
     AgentState,

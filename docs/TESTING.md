@@ -17,8 +17,12 @@ tests/
     test_semantic_chunker.py
     test_contextual_enricher.py
     test_pipeline_integration.py
-  agent/
+  agent/                  # 新版 LangGraph + capabilities
+    test_builder.py
+    ...
+  legacy_agent/           # 旧版 CRAG / Self-RAG（对应 legacy/agent/）
     test_graph_and_nodes.py
+    ...
   tools/
     test_tool_box.py
     test_mcp_tools.py
@@ -59,8 +63,11 @@ pytest -c tests/pytest.ini
 # 仅 RAG 模块
 pytest -c tests/pytest.ini tests/rag/
 
-# 仅 Agent 模块
+# 仅新版 Agent 模块
 pytest -c tests/pytest.ini tests/agent/
+
+# 仅旧版 Agent（legacy/agent/）
+pytest -c tests/pytest.ini tests/legacy_agent/
 
 # 快速 CI（排除慢测试与 API）
 pytest -c tests/pytest.ini -m "not slow and not requires_api"
@@ -96,12 +103,22 @@ pytest -c tests/pytest.ini -m "not slow and not requires_api"
 | ContextualEnricher | `test_contextual_enricher.py` | header、`embed_text`、retrieve prepend |
 | Pipeline | `test_pipeline_integration.py` | `RAGIndexer` + in-memory Qdrant + `RAGRetriever.aquery` |
 
-### Agent（6 个 test function，其中 3 个可能 skip）
+### Agent — 新版（`tests/agent/`，约 39 个 test）
 
 | 模块 | 文件 | 覆盖要点 |
 |------|------|----------|
-| 路由 | `test_graph_and_nodes.py` | `if_tool_calls` → `tools` / 非 tools（需能 import `agent.graph`） |
+| 构图 / 路由 | `test_builder.py` | `build_agent`、LLM/tools 后路由 |
+| Capabilities | `test_retrieval_gate_node.py` 等 | Retrieval Gate、RAG Profile Router |
+| 策略 | `test_rag_tool_policy.py` | RAG tool schema / override |
+| 输出 | `test_output.py` | `OutputState` 序列化 |
+
+### Agent — 旧版（`tests/legacy_agent/`，约 49 个 test，其中 3 个可能 skip）
+
+| 模块 | 文件 | 覆盖要点 |
+|------|------|----------|
+| 路由 | `test_graph_and_nodes.py` | `if_tool_calls` → `tools` / 非 tools（`legacy.agent.graph`） |
 | 节点 | `test_graph_and_nodes.py` | `tool_node` 成功 / 错误、`llm_node` 传 tools |
+| 反思 | `test_self_rag.py`、`test_crag.py`、`test_feedback.py` | Self-RAG / CRAG / Feedback pattern |
 
 ### Tools（10 个 test function）
 

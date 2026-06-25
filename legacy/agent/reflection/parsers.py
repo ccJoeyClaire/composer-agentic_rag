@@ -10,7 +10,7 @@ from typing import Iterable
 
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 
-from agent.state import DEFAULT_RAG_TOOL_NAME
+from legacy.agent.state import DEFAULT_RAG_TOOL_NAME
 
 RAG_CHUNK_SEPARATOR = "\n\n---\n\n"
 
@@ -63,7 +63,7 @@ def extract_rag_tool_results(
 
 def _demo_main() -> None:
     """Offline smoke: extract latest RAG batch and split chunks."""
-    from agent.state import DEFAULT_RAG_TOOL_NAME, DEFAULT_WEB_TOOL_NAME
+    from legacy.agent.state import DEFAULT_RAG_TOOL_NAME, DEFAULT_WEB_TOOL_NAME
 
     messages = [
         AIMessage(

@@ -1,4 +1,4 @@
-"""Run agent_v2 with v1-style pattern names.
+"""Run agent with v1-style pattern names.
 
 Prerequisites:
   1. ``.env`` with LLM + embedding keys (CRAG patterns need RERANK_API_KEY)
@@ -21,9 +21,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
 
-from agent_v2.output import OutputState
-from agent_v2.pattern.common import RequestConfig, build_graph
-from agent_v2.pattern.config import get_agent_pattern_config
+from agent.output import OutputState
+from agent.pattern.common import RequestConfig, build_graph
+from agent.pattern.config import get_agent_pattern_config
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _PROFILE_ID = "baseline"
@@ -57,7 +57,7 @@ async def main() -> None:
     load_dotenv(_REPO_ROOT / ".env")
 
     patterns = sorted(get_agent_pattern_config().patterns)
-    parser = argparse.ArgumentParser(description="agent_v2 get_start smoke test.")
+    parser = argparse.ArgumentParser(description="agent get_start smoke test.")
     parser.add_argument("--pattern", choices=patterns, default="self_rag")
     parser.add_argument("--query", default=DEFAULT_QUERY)
     parser.add_argument("--collection", default=COLLECTION)

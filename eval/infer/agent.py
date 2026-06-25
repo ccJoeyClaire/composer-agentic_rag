@@ -1,4 +1,4 @@
-"""AgentInferArm: run agent_v2 graph for one query.
+"""AgentInferArm: run agent graph for one query.
 
 Covers all four agent patterns (react / crag / self_rag / crag_self_rag).
 ``retrieved_context`` is extracted from ToolMessage content (blueprint §4.2 A).
@@ -10,8 +10,8 @@ import re
 
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 
-from agent_v2.output import OutputState
-from agent_v2.pattern.common import RequestConfig, build_graph
+from agent.output import OutputState
+from agent.pattern.common import RequestConfig, build_graph
 
 from eval.infer.base import BaseInferArm
 from eval.run_config import EvalRunConfig
@@ -92,7 +92,7 @@ def _final_response(messages: list[BaseMessage]) -> str:
 
 
 class AgentInferArm(BaseInferArm):
-    """Run one agent_v2 pattern for a single query.
+    """Run one agent pattern for a single query.
 
     Args:
         config: Run config supplying profile_id, collection, and arm (pattern).

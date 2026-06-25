@@ -72,7 +72,7 @@ def openai_response_to_ai_message(response: Any) -> AIMessage:
 
 def _demo_main() -> None:
     """Inspectable demo: LangChain messages <-> OpenAI format."""
-    from agent.state import DEFAULT_RAG_TOOL_NAME
+    from legacy.agent.state import DEFAULT_RAG_TOOL_NAME
 
     human = HumanMessage(content="What is the capital of France?")
     ai_tool = AIMessage(

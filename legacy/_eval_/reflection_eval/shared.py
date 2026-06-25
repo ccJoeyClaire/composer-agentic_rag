@@ -8,8 +8,8 @@ from typing import TypedDict
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
-from agent.graph import AgentConfig, build_agent
-from agent.state import DEFAULT_RAG_TOOL_NAME
+from legacy.agent.graph import AgentConfig, build_agent
+from legacy.agent.state import DEFAULT_RAG_TOOL_NAME
 from llm.client import LLMClient
 from rag.base import Chunk
 from rag.core import RAGIndexer, RAGRetriever

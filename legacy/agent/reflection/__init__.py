@@ -1,6 +1,6 @@
 """Reflection helpers: parsers, Self-RAG nodes, Feedback nodes."""
 
-from agent.reflection.feedback import (
+from legacy.agent.reflection.feedback import (
     FeedbackConfig,
     default_detect_feedback,
     default_plan_feedback,
@@ -8,11 +8,11 @@ from agent.reflection.feedback import (
     plan_feedback_node,
     route_after_detect,
 )
-from agent.reflection.parsers import (
+from legacy.agent.reflection.parsers import (
     extract_rag_tool_results,
     split_rag_chunks,
 )
-from agent.reflection.self_rag import (
+from legacy.agent.reflection.self_rag import (
     SelfRagConfig,
     last_ai_answer,
     last_human_message,

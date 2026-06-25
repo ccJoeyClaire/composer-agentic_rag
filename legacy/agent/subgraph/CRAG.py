@@ -22,8 +22,8 @@ from typing import Awaitable, Callable, List, Optional, Tuple, TypedDict
 from langchain_core.messages import RemoveMessage, ToolMessage
 from langgraph.graph import END, StateGraph
 
-from agent.reflection.parsers import extract_rag_tool_results, split_rag_chunks
-from agent.state import (
+from legacy.agent.reflection.parsers import extract_rag_tool_results, split_rag_chunks
+from legacy.agent.state import (
     DEFAULT_MAX_RAG_ATTEMPTS,
     DEFAULT_RAG_TOOL_NAME,
     DEFAULT_WEB_TOOL_NAME,
@@ -32,7 +32,7 @@ from agent.state import (
 )
 from llm.client import LLMClient
 
-from agent.subgraph.score_fn import (
+from legacy.agent.subgraph.score_fn import (
     CrossEncoderScoreConfig,
     ScorePassagesFn,
     build_cross_encoder_score_fn,

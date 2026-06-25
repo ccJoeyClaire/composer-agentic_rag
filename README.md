@@ -98,7 +98,7 @@ RAG 的全部开关、组件清单与 Qdrant 说明见 [`rag/README.md`](rag/REA
 ```python
 import asyncio
 from langchain_core.messages import HumanMessage
-from agent.graph import AgentConfig, build_agent
+from legacy.agent.graph import AgentConfig, build_agent
 from llm.client import LLMClient
 from tools.tool_box import ToolBox
 

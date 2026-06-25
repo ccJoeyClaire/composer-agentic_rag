@@ -8,7 +8,7 @@
 > |------|------|-----------------|
 > | `rag/` | ✅ 基本完工 | 作为稳定能力完整介绍 |
 > | `get_start/` | ✅ RAG 示例可跑；Agent 示例 🚧 今日计划补 | RAG 路径写实；Agent 标 WIP 或占位 |
-> | `agent_v2/` | 🚧 重构中 | 说明是**推荐方向**，API 可能变动 |
+> | `agent/` | 🚧 重构中 | 说明是**推荐方向**，API 可能变动 |
 > | `agent/` | legacy | 一句带过或「迁移中」 |
 > | 评测 | 📋 计划：Easy Dataset 出题 + RAGChecker | 留空节 + 复现命令占位；**不写** BEIR / `_eval_` 为主路径 |
 >
@@ -32,7 +32,7 @@
 `[填]` **状态徽章（二选一或组合）**：
 
 - RAG：**可用**
-- Agent（`agent_v2`）：**重构中**
+- Agent（`agent`）：**重构中**
 - 系统化评测：**计划中**（Easy Dataset + RAGChecker）
 
 `[选]` 可选：CI badge、Python 版本、License badge。
@@ -54,7 +54,7 @@
 ```markdown
 - **RAG 可独立使用**：建库 / 检索与 Agent 解耦，`rag/` 单独 import 即可
 - **Profile 开关组合**：chunk 策略、contextual、s2b、HyDE、rerank 等通过 `arg_config.yaml` profile 切换
-- **Agent 能力插件**（`agent_v2`，重构中）：Retrieval Gate、RAG Profile Router、Human Feedback 等独立 toggle
+- **Agent 能力插件**（`agent`，重构中）：Retrieval Gate、RAG Profile Router、Human Feedback 等独立 toggle
 - **可观测**：index / retrieve 可 dump JSONL trace（见 `get_start/`）
 - **评测路线**（计划中）：Easy Dataset 生成 QA + RAGChecker 评答案质量
 ```
@@ -75,7 +75,7 @@
 `[填]` 保留分层 ASCII 图，**路径要对齐现状**：
 
 ```
-用户 query ──▶ agent_v2/  (LangGraph ReAct + 可选 capabilities)   [WIP]
+用户 query ──▶ agent/  (LangGraph ReAct + 可选 capabilities)   [WIP]
                     │ ToolBox
                     ▼
               tools/  (RAG_search · web · MCP …)
@@ -95,7 +95,7 @@
 ▸ **本章放什么**
 
 - 一张图 + 短说明即可。
-- 若 `agent/` 仍保留，脚注：`agent/` 为旧版，新开发请用 `agent_v2/`。
+- 若 `agent/` 仍保留，脚注：`agent/` 为旧版，新开发请用 `agent/`。
 
 ---
 
@@ -150,10 +150,10 @@ python -m get_start.retrieve_example
 
 `[WIP]` 今日补 `get_start/agent_example.py` 后再填。
 
-> **状态：重构中。** 以下 API 以 `agent_v2` 为准，可能变动。
+> **状态：重构中。** 以下 API 以 `agent` 为准，可能变动。
 
 ```python
-# TODO: agent_v2 build_agent 最小 invoke 示例
+# TODO: agent build_agent 最小 invoke 示例
 # 前置：bind_rag_context(...) 或共享 collection
 ```
 
@@ -206,7 +206,7 @@ profile = get_profile(get_rag_config(), "baseline")
 
 ---
 
-## Agent（agent_v2）
+## Agent（agent）
 
 `[WIP]` 本节在 Agent 重构稳定前保持「方向说明 + 占位示例」。
 
@@ -219,7 +219,7 @@ profile = get_profile(get_rag_config(), "baseline")
 
 ### Capability 开关
 
-`[填]` 表（对齐 `agent_v2/config.py`）：
+`[填]` 表（对齐 `agent/config.py`）：
 
 | 配置项 | 作用 | 默认 |
 |--------|------|------|
@@ -233,14 +233,14 @@ profile = get_profile(get_rag_config(), "baseline")
 `[WIP]` get_start Agent 示例就绪后替换：
 
 ```python
-# from agent_v2.builder import build_agent
-# from agent_v2.config import AgentConfig
+# from agent.builder import build_agent
+# from agent.config import AgentConfig
 # ...
 ```
 
 ### 与旧版 `agent/` 的关系
 
-`[填]` 一句：旧图（CRAG / Self-RAG / Feedback pattern）在 `agent/`；逻辑迁移到 `agent_v2` capabilities 中，**新代码勿依赖 `agent/graph.py`**。
+`[填]` 一句：旧图（CRAG / Self-RAG / Feedback pattern）在 `legacy/agent/`；逻辑已迁移到 `agent/` capabilities 中，**新代码勿依赖 `legacy/agent/graph.py`**。
 
 `[填]` 设计深链 → `docs/FRAMEWORK_DESIGN.md`、`docs/REFLECTION_GRAPH_DESIGN.md`（注明部分描述针对 legacy，阅前看日期）。
 
@@ -332,7 +332,7 @@ profile = get_profile(get_rag_config(), "baseline")
 |------|------|------|
 | `rag/` | 建库 + 检索 + Qdrant | ✅ |
 | `get_start/` | 上手示例与 `runs/` trace | ✅ RAG / 🚧 Agent |
-| `agent_v2/` | LangGraph Agent + capabilities | 🚧 |
+| `agent/` | LangGraph Agent + capabilities | 🚧 |
 | `agent/` | 旧版 ReAct + 反思 pattern | legacy |
 | `tools/` | ToolBox、local/MCP 工具 | ✅ |
 | `llm/` | OpenAI 兼容 client | ✅ |
@@ -408,7 +408,7 @@ pytest                                                           # 全量
 - [ ] 顶部状态与真实能力一致（RAG ✅ / Agent 🚧 / Eval 📋）
 - [ ] 快速开始命令在本机跑通并贴预期输出
 - [ ] 无失效路径（`rag_demo.py`、`rag/README.md`、`eval/` 等）
-- [ ] Agent 示例与 `agent_v2` API 一致
+- [ ] Agent 示例与 `agent` API 一致
 - [ ] 评测节不以 `_eval_` 为主；Easy Dataset + RAGChecker 占位已留
 - [ ] 深链文档存在或标「待写」
 - [ ] 删掉本骨架里的「▸ 本章放什么」说明块

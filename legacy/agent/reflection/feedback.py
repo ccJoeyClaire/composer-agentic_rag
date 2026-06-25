@@ -15,8 +15,8 @@ from typing import Awaitable, Callable, TypedDict
 
 from langchain_core.messages import HumanMessage
 
-from agent.reflection.self_rag import last_human_message
-from agent.state import (
+from legacy.agent.reflection.self_rag import last_human_message
+from legacy.agent.state import (
     AgentMetadata,
     AgentState,
     FeedbackAction,

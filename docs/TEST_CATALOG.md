@@ -32,16 +32,17 @@
 
 ```text
 Day A（4h）  conftest → rag/ 全部
-Day B（4h）  tools/ 全部 → agent/test_graph_and_nodes.py
-Day C（4h）  agent/test_self_rag → test_crag → test_feedback
-Day D（2h）  eval/ + 回头补看不懂的 test
+Day B（4h）  tools/ 全部 → legacy_agent/test_graph_and_nodes.py
+Day C（4h）  legacy_agent/test_self_rag → test_crag → test_feedback
+Day D（2h）  agent/（新版）+ eval/ + 回头补看不懂的 test
 ```
 
 单独跑某一文件：
 
 ```bash
 pytest -c tests/pytest.ini tests/rag/test_parent_builder.py -v
-pytest -c tests/pytest.ini tests/agent/test_crag.py::test_decide_action -v
+pytest -c tests/pytest.ini tests/legacy_agent/test_crag.py::test_decide_action -v
+pytest -c tests/pytest.ini tests/agent/test_builder.py -v
 ```
 
 ---
@@ -221,11 +222,30 @@ pytest -c tests/pytest.ini tests/agent/test_crag.py::test_decide_action -v
 
 ---
 
-## 3. Agent 模块（48 个 test）
+## 3. Agent 模块
 
-### 3.1 `tests/agent/test_graph_and_nodes.py`（6）— ReAct 骨架
+新版实现在 `agent/`（capabilities 插件化）；旧版 CRAG / Self-RAG 在 `legacy/agent/`，测试在 `tests/legacy_agent/`。
 
-**对应生产代码：** `agent/graph.py`（`if_tool_calls`）、`agent/nodes.py`
+### 3.0 `tests/agent/`（39）— 新版 LangGraph + capabilities
+
+**对应生产代码：** `agent/builder.py`、`agent/capabilities/`、`agent/core/`
+
+| 文件 | 在保护什么 |
+|------|------------|
+| `test_builder.py` | 图编译、LLM/tools 后路由、pattern 开关 |
+| `test_retrieval_gate_node.py` | Retrieval Gate 打分与 verdict |
+| `test_rag_profile_router_node.py` | RAG profile 校验与 metadata |
+| `test_rag_tool_policy.py` | RAG tool query-only vs override schema |
+| `test_output.py` | `OutputState` 序列化 |
+| `test_pattern_config.py` | pattern yaml 加载 |
+
+**⏱ 建议：** 改 `agent/` 下任何代码前，先 `pytest tests/agent/ -v`
+
+---
+
+### 3.1 `tests/legacy_agent/test_graph_and_nodes.py`（6）— 旧版 ReAct 骨架
+
+**对应生产代码：** `legacy/agent/graph.py`（`if_tool_calls`）、`legacy/agent/nodes.py`
 
 | Test | 在保护什么 |
 |------|------------|
@@ -240,9 +260,9 @@ pytest -c tests/pytest.ini tests/agent/test_crag.py::test_decide_action -v
 
 ---
 
-### 3.2 `tests/agent/test_self_rag.py`（14）— 检索前/后反思
+### 3.2 `tests/legacy_agent/test_self_rag.py`（14）— 检索前/后反思
 
-**对应生产代码：** `agent/reflection/self_rag.py`、`agent/graph.py`
+**对应生产代码：** `legacy/agent/reflection/self_rag.py`、`legacy/agent/graph.py`
 
 | Test | 在保护什么 |
 |------|------------|
@@ -265,9 +285,9 @@ pytest -c tests/pytest.ini tests/agent/test_crag.py::test_decide_action -v
 
 ---
 
-### 3.3 `tests/agent/test_crag.py`（14）— 检索结果校正
+### 3.3 `tests/legacy_agent/test_crag.py`（14）— 检索结果校正
 
-**对应生产代码：** `agent/subgraph/CRAG.py`、`agent/reflection/parsers.py`
+**对应生产代码：** `legacy/agent/subgraph/CRAG.py`、`legacy/agent/reflection/parsers.py`
 
 **分层理解：**
 
@@ -299,9 +319,9 @@ parsers（拆分 RAG 工具输出）
 
 ---
 
-### 3.4 `tests/agent/test_feedback.py`（15）— 用户纠正 / 澄清
+### 3.4 `tests/legacy_agent/test_feedback.py`（15）— 用户纠正 / 澄清
 
-**对应生产代码：** `agent/reflection/feedback.py`
+**对应生产代码：** `legacy/agent/reflection/feedback.py`
 
 | Test | 在保护什么 |
 |------|------------|
@@ -349,10 +369,11 @@ parsers（拆分 RAG 工具输出）
 | `predict_question.py` | `test_predict_question.py` |
 | `core.py` indexer/retriever | `test_pipeline_integration.py` |
 | `RAG_tool.py` | `test_rag_tool.py` |
-| `graph.py` / `nodes.py` | `test_graph_and_nodes.py` + 相关 pattern test |
-| `self_rag.py` | `test_self_rag.py` |
-| `CRAG.py` | `test_crag.py` |
-| `feedback.py` | `test_feedback.py` |
+| `agent/builder.py` / capabilities | `tests/agent/test_builder.py` 等 |
+| `legacy/agent/graph.py` / `nodes.py` | `tests/legacy_agent/test_graph_and_nodes.py` + 相关 pattern test |
+| `legacy/agent/self_rag.py` | `tests/legacy_agent/test_self_rag.py` |
+| `legacy/agent/CRAG.py` | `tests/legacy_agent/test_crag.py` |
+| `legacy/agent/feedback.py` | `tests/legacy_agent/test_feedback.py` |
 
 ---
 
@@ -364,7 +385,7 @@ parsers（拆分 RAG 工具输出）
 文件: test_crag.py
 保护的核心契约: incorrect 且未用尽 → requery；用尽 → degrade 或 web
 我还没懂: decide_action 和 subgraph 里 attempt 计数谁负责递增？
-下次改代码前必跑: pytest tests/agent/test_crag.py -v
+下次改代码前必跑: pytest tests/legacy_agent/test_crag.py -v
 ```
 
 ---

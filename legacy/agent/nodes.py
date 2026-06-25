@@ -1,7 +1,7 @@
 from langchain_core.messages import ToolMessage
 
-from agent.messages import messages_to_openai, openai_response_to_ai_message
-from agent.state import AgentState
+from legacy.agent.messages import messages_to_openai, openai_response_to_ai_message
+from legacy.agent.state import AgentState
 from llm.client import LLMClient
 from tools.tool_box import ToolBox, ToolResult
 

@@ -28,7 +28,7 @@ from dotenv import load_dotenv
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from tqdm import tqdm
 
-from agent.graph import AgentConfig, build_agent
+from legacy.agent.graph import AgentConfig, build_agent
 from llm.client import LLMClient
 from rag.core import RAGIndexer, RAGRetriever
 from tools.LocalTool.RAG_tool import bind_retriever

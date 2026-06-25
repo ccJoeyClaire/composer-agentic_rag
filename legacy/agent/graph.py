@@ -16,21 +16,21 @@ import argparse
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from agent.state import DEFAULT_MAX_RAG_ATTEMPTS, get_metadata
-from agent.nodes import llm_node, tool_node
-from agent.reflection.feedback import (
+from legacy.agent.state import DEFAULT_MAX_RAG_ATTEMPTS, get_metadata
+from legacy.agent.nodes import llm_node, tool_node
+from legacy.agent.reflection.feedback import (
     FeedbackConfig,
     detect_feedback_node,
     plan_feedback_node,
     route_after_detect,
 )
-from agent.reflection.self_rag import (
+from legacy.agent.reflection.self_rag import (
     SelfRagConfig,
     self_rag_post_node,
     self_rag_pre_node,
 )
-from agent.state import AgentState
-from agent.subgraph.CRAG import CragConfig, build_crag_node
+from legacy.agent.state import AgentState
+from legacy.agent.subgraph.CRAG import CragConfig, build_crag_node
 from llm.client import LLMClient
 from tools.tool_box import ToolBox
 
