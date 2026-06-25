@@ -1,178 +1,414 @@
+# README 骨架（composer-agentic_rag）
+
+> 本文件是 **README 写作框架**，不是最终对外文档。写完后把内容迁到根目录 `README.md`。
+>
+> **当前项目状态（对齐用）**
+>
+> | 模块 | 状态 | README 里怎么写 |
+> |------|------|-----------------|
+> | `rag/` | ✅ 基本完工 | 作为稳定能力完整介绍 |
+> | `get_start/` | ✅ RAG 示例可跑；Agent 示例 🚧 今日计划补 | RAG 路径写实；Agent 标 WIP 或占位 |
+> | `agent/` | 🚧 重构中 | 说明是**推荐方向**，API 可能变动 |
+> | `agent/` | legacy | 一句带过或「迁移中」 |
+> | 评测 | 📋 计划：Easy Dataset 出题 + RAGChecker | 留空节 + 复现命令占位；**不写** BEIR / `_eval_` 为主路径 |
+>
+> 行首标记：`[填]` 必写 · `[选]` 可选 · `[暂缓]` 等有结果再写 · `[WIP]` 重构未完成
+
+---
+
+## 0. 怎么用这份骨架
+
+1. 从上到下复制到 `README.md`。
+2. 删掉每节下方的「▸ 本章放什么」说明块（或保留在 PR 里对照）。
+3. `[填]` 先写 RAG + get_start；Agent / 评测节可保留占位。
+4. 子文档（RAG 开关详解、Agent 设计）链到 `docs/`，README 只放摘要。
+
+---
+
 # composer-agentic_rag
 
-一个**组件化的 Agentic RAG 框架**：把「可插拔 RAG」与「带反思的 LangGraph ReAct Agent」组合在一起。检索增强（small-to-big / contextual / HyDE / rerank）与智能体反思模式（CRAG / Self-RAG / Feedback）都做成开关，按需启用。
+`[填]` **一句话**：组件化 Agentic RAG——可插拔检索管线 + LangGraph ReAct Agent，检索增强与 Agent 能力均按需开关组合。
 
-> **状态：开发中。** 核心链路与单元/集成测试已就绪；**系统化 eval 尚未运行**——检索质量与各开关的收益仍待量化（计划见 `docs/WEEKLY_EVAL_PLAN.md`，结果记录在 `docs/eval_results.md`）。当前的默认参数属于「合理默认」，不代表已验证的最优配置。
+`[填]` **状态徽章（二选一或组合）**：
 
----
+- RAG：**可用**
+- Agent（`agent`）：**重构中**
+- 系统化评测：**计划中**（Easy Dataset + RAGChecker）
 
-## 分层架构
-
-```
-                         ┌─────────────────────────────────────┐
-   用户 query ─────────▶ │  agent/  (LangGraph ReAct + 反思)     │
-                         │  CRAG · Self-RAG · Feedback           │
-                         └───────────────┬─────────────────────┘
-                                         │ 通过 ToolBox 调用
-                         ┌───────────────▼─────────────────────┐
-                         │  tools/  (装饰器自动发现的工具箱)      │
-                         │  local: RAG_search / RAG_index / math │
-                         │  mcp:   markitdown · web search       │
-                         └───────────────┬─────────────────────┘
-                                         │ RAG 工具委托
-                         ┌───────────────▼─────────────────────┐
-                         │  rag/  (index + retrieve 两条流程)     │
-                         │  chunk → embed → Qdrant → retrieve    │
-                         └─────────────────────────────────────┘
-   llm/  : OpenAI 兼容的同步/异步 Chat 客户端，贯穿各层
-```
-
-各层只依赖下一层的抽象：Agent 不直接 `import RAGRetriever`，而是经 `ToolBox` 调 `RAG_search_tool`（见 `agent/rag_tool.py`、`tools/LocalTool/RAG_tool.py`）。
+`[选]` 可选：CI badge、Python 版本、License badge。
 
 ---
 
-## 目录结构
+▸ **本章放什么**
 
-| 目录 | 内容 |
-|------|------|
-| `llm/` | `LLMClient` —— 兼容 OpenAI 的同步/异步 chat 客户端 |
-| `tools/` | `ToolBox` 工具运行时 + `@local_tool` / `@mcp_tool` 装饰器自动发现；`LocalTool/`（RAG、math）、`MCPTool/`（markitdown、web search） |
-| `rag/` | 可插拔 RAG 模块（建库 + 检索）。详见 [`rag/README.md`](rag/README.md) |
-| `agent/` | LangGraph ReAct agent 与反思子图：`graph.py`、`reflection/`（Self-RAG、Feedback）、`subgraph/CRAG.py` |
-| `get_start/` | 上手 demo（`rag_demo.py`） |
-| `tests/` | 单元 / 集成 / eval 测试；清单见 `docs/TEST_CATALOG.md` |
-| `docs/` | 设计与测试/评测文档（见文末索引） |
+- 读者 10 秒内知道：这是什么、哪部分能直接用、哪部分还在动。
+- **不要**在这里展开 CRAG 节点、chunker 实现细节。
+- 若对外开源，第二句可写「和通用 RAG 库的差异」（Agent 解耦、profile 开关、能力插件化）。
+
+---
+
+## 特性概览
+
+`[填]` 3～5 条 bullet，按**读者价值**写，不是按目录写：
+
+```markdown
+- **RAG 可独立使用**：建库 / 检索与 Agent 解耦，`rag/` 单独 import 即可
+- **Profile 开关组合**：chunk 策略、contextual、s2b、HyDE、rerank 等通过 `arg_config.yaml` profile 切换
+- **Agent 能力插件**（`agent`，重构中）：Retrieval Gate、RAG Profile Router、Human Feedback 等独立 toggle
+- **可观测**：index / retrieve 可 dump JSONL trace（见 `get_start/`）
+- **评测路线**（计划中）：Easy Dataset 生成 QA + RAGChecker 评答案质量
+```
+
+`[暂缓]` 量化数字（Recall、RAGChecker 分数）——有跑分后再加一条。
+
+---
+
+▸ **本章放什么**
+
+- 卖点清单；每条最好能对应「用户能做什么」。
+- Agent 相关 bullet 加「重构中」以免 API 变动被当成 bug。
+
+---
+
+## 架构
+
+`[填]` 保留分层 ASCII 图，**路径要对齐现状**：
+
+```
+用户 query ──▶ agent/  (LangGraph ReAct + 可选 capabilities)   [WIP]
+                    │ ToolBox
+                    ▼
+              tools/  (RAG_search · web · MCP …)
+                    │
+                    ▼
+              rag/    (index 管线 · retrieve 管线 · Qdrant)
+                    │
+              llm/    (OpenAI 兼容 client，贯穿各层)
+```
+
+`[填]` 图下 2～3 句：**依赖方向**（Agent 不直接 import retriever，经 ToolBox）、**配置入口**（RAG → `arg_config.yaml`；Agent → `AgentConfig`）。
+
+`[选]` Mermaid 版（与 ASCII 二选一，避免重复）。
+
+---
+
+▸ **本章放什么**
+
+- 一张图 + 短说明即可。
+- 若 `agent/` 仍保留，脚注：`agent/` 为旧版，新开发请用 `agent/`。
 
 ---
 
 ## 快速开始
 
-### 1. 安装与配置
+`[填]` 前置条件清单：
+
+| 条件 | RAG demo | Agent demo（日后） |
+|------|:--------:|:------------------:|
+| Python 3.x + `pip install -r requirements.txt` | ✓ | ✓ |
+| `.env`（Embedding；HyDE/rerank 等还需 LLM key） | ✓ | ✓ |
+| Qdrant `127.0.0.1:6333` | ✓（当前 get_start） | 视 Agent 示例而定 |
+| Docker | 选 | 选 |
+
+### 安装
+
+`[填]`
 
 ```bash
 pip install -r requirements.txt
-copy .env.example .env          # 然后填入你的 key（Windows）
+copy .env.example .env   # Windows；Unix: cp .env.example .env
 ```
 
-`.env` 关键变量：
+### 环境变量
+
+`[填]` **精简表**（完整列表链 `.env.example`）：
 
 | 变量 | 用途 |
 |------|------|
-| `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL_ID` | Chat LLM（Agent、HyDE、predict-questions、反思节点） |
-| `EMBEDDING_API_KEY` / `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL_ID` | Embedding（RAG 建库与检索） |
-| `EMBEDDING_BATCH_SIZE` | 单次 embed 请求条数上限（DashScope 建议 `10`） |
-| `BOCHA_API_KEY` / `OPENAI_API_KEY`… | 可选：web search / markitdown OCR 等 MCP 工具 |
+| `EMBEDDING_*` | 建库与向量检索 |
+| `LLM_*` | Agent、HyDE、contextual enrich 等 |
+| `BOCHA_API_KEY` / `TAVILY_*` | 可选联网搜索 |
+| … | … |
 
-未配置时 `EMBEDDING_*` 会回退到 `LLM_*`。完整项见 `.env.example`。
+### RAG：索引 → 检索（推荐第一步）
 
-### 2. 跑 RAG demo（最快验证）
+`[填]` 对齐 `get_start/` 真实命令：
 
 ```bash
-python get_start/rag_demo.py                    # 仅分块检查，不调 API
-python get_start/rag_demo.py --rag --in-memory  # 端到端检索（需 Embedding key，无需 Docker）
+# 1. 索引 fixture 文章 → Qdrant，输出 runs/index.jsonl
+python -m get_start.index_example
+
+# 2. 同一 collection 检索，输出 runs/retrieve.jsonl
+python -m get_start.retrieve_example
 ```
 
-### 3. 用 RAG 库（无需 Docker，内存模式）
+`[填]` **预期结果**（1～2 句）：例如 retrieve 终端打印 top-k chunk 摘要；`get_start/runs/*.jsonl` 含 trace。
+
+`[填]` **可调旋钮**（各 1 句 + 链接）：改 `_PROFILE_ID` / `arg_config.yaml` profile；改 `_QUERY`。
+
+### Agent：最小示例
+
+`[WIP]` 今日补 `get_start/agent_example.py` 后再填。
+
+> **状态：重构中。** 以下 API 以 `agent` 为准，可能变动。
 
 ```python
-import asyncio
-from rag import build_RAG_indexer, build_RAG_retriever
-
-async def main():
-    indexer = build_RAG_indexer("demo", in_memory=True)
-    retriever = build_RAG_retriever(
-        "demo", in_memory=True,
-        store=indexer.store, embedder=indexer.embedder,   # 内存模式须共享 store
-    )
-    await indexer.aindex("# 标题\n\n正文……", source="doc.md")
-    for c in await retriever.aquery("你的问题", top_k=3):
-        print(round(c.score, 4), c.content[:120])
-
-asyncio.run(main())
+# TODO: agent build_agent 最小 invoke 示例
+# 前置：bind_rag_context(...) 或共享 collection
 ```
 
-RAG 的全部开关、组件清单与 Qdrant 说明见 [`rag/README.md`](rag/README.md)。
+`[暂缓]` 直到 get_start Agent 示例稳定再写完整代码块。
 
-### 4. 构建一个 Agent
+### 不用 Docker / 内存模式（可选路径）
 
-```python
-import asyncio
-from langchain_core.messages import HumanMessage
-from legacy.agent.graph import AgentConfig, build_agent
-from llm.client import LLMClient
-from tools.tool_box import ToolBox
-
-async def main():
-    agent = build_agent(
-        AgentConfig(llm=LLMClient(), tool_box=ToolBox()),
-        pattern="react_all",     # 见下方模式表
-    )
-    state = await agent.ainvoke({"messages": [HumanMessage(content="你的问题")]})
-    print(state["messages"][-1].content)
-
-asyncio.run(main())
-```
-
-> 若要让 Agent 使用 RAG 检索工具，需在启动时调用 `tools.LocalTool.RAG_tool.bind_rag_context(collection=..., in_memory=...)` 绑定共享的 store/embedder。
+`[选]` 若仍支持 `in_memory=True`，给 5～10 行 `build_RAG_indexer` / `build_RAG_retriever` 片段；注明与 get_start（Qdrant）二选一。
 
 ---
 
-## Agent 反思模式
+▸ **本章放什么**
 
-`build_agent(config, pattern=...)` 通过组合三个反思能力得到不同模式：
-
-| pattern | CRAG | Self-RAG | Feedback | 说明 |
-|---------|:---:|:---:|:---:|------|
-| `react` | | | | 基础 ReAct（LLM ⇄ tools） |
-| `react_crag` | ✓ | | | 检索后做 Corrective-RAG 评估再回到 LLM |
-| `react_self_rag` | | ✓ | | 检索前判定是否需检索 + 回答后做 groundedness 检查与重试 |
-| `react_feedback` | | | ✓ | 入口检测用户反馈并先规划 |
-| `react_full` | ✓ | ✓ | | CRAG + Self-RAG |
-| `react_all` | ✓ | ✓ | ✓ | 全部启用 |
-
-- **CRAG**（`agent/subgraph/CRAG.py`）：评估检索结果质量，必要时纠正/重查。
-- **Self-RAG**（`agent/reflection/self_rag.py`）：`pre` 节点决定是否检索；`post` 节点检查答案是否有据，未达标且仍有 `max_rag_attempts` 配额时回到 LLM 重试。
-- **Feedback**（`agent/reflection/feedback.py`）：检测用户反馈并据此规划。
-
-也可不用 pattern，直接在 `AgentConfig` 上设 `enable_crag` / `enable_self_rag` / `enable_feedback`。
+- **可复制粘贴能跑**的路径；RAG 写满，Agent 允许占位。
+- 每个命令注明：需要什么 key、要不要先跑上一步。
+- 旧 README 里的 `rag_demo.py` **已不存在**——以 `index_example` / `retrieve_example` 为准。
 
 ---
 
-## 工具系统（`tools/`）
+## RAG 配置与 Profile
 
-`ToolBox` 在启动时扫描 `tools.LocalTool` 与 `tools.MCPTool` 两个包，自动发现被 `@local_tool` / `@mcp_tool` 装饰的函数，并把它们转成 OpenAI function-calling schema 供 LLM 选用。
+`[填]` **概念一句**：profile 是索引期 + 检索期开关的命名组合，定义在 `arg_config.yaml`。
 
-| 工具 | 来源 | 作用 |
+`[填]` **简表**（不必列全部分 profile，选 3～5 个代表）：
+
+| profile_id | 典型用途 | 索引侧 | 检索侧 |
+|------------|----------|--------|--------|
+| `baseline` | 默认上手 | token chunk | 向量 top-k |
+| `baseline_hyde` | 查询扩展 | … | HyDE |
+| `full` | 全开 ablation | contextual + s2b + … | hyde + rerank |
+| … | … | … | … |
+
+`[填]` 切换方式：
+
+```python
+profile = get_profile(get_rag_config(), "baseline")
+```
+
+`[填]` **深链**（子文档占位，文件可后续补）：
+
+- Profile 字段说明 → `docs/rag_pattern.md`（或新建 `docs/RAG.md`）
+- 组件清单（chunker / store / reranker）→ 同上
+
+---
+
+▸ **本章放什么**
+
+- 帮助读者「改哪个 yaml、换哪个 profile」，不是实现原理。
+- 完整 ablation 表放 eval 文档，不堆在 README。
+
+---
+
+## Agent（agent）
+
+`[WIP]` 本节在 Agent 重构稳定前保持「方向说明 + 占位示例」。
+
+### 设计要点
+
+`[填]` 2～4 句：
+
+- LLM 仍是决策中心；capabilities 只追加节点/工具，**不是**互斥的 `pattern=` preset。
+- 与 `tools/` 的 `ToolBox` 集成；RAG 工具名、web 工具名可配置。
+
+### Capability 开关
+
+`[填]` 表（对齐 `agent/config.py`）：
+
+| 配置项 | 作用 | 默认 |
+|--------|------|------|
+| `enable_retrieval_gate` | 检索结果质量门控，再回 LLM | off |
+| `enable_rag_profile_router` | 按 query 选 RAG profile | off |
+| `enable_human_feedback` | 人机反馈 + checkpoint | off |
+| `enable_web_search` | 暴露联网工具 | on |
+
+### 构建示例
+
+`[WIP]` get_start Agent 示例就绪后替换：
+
+```python
+# from agent.builder import build_agent
+# from agent.config import AgentConfig
+# ...
+```
+
+### 与旧版 `agent/` 的关系
+
+`[填]` 一句：旧图（CRAG / Self-RAG / Feedback pattern）在 `legacy/agent/`；逻辑已迁移到 `agent/` capabilities 中，**新代码勿依赖 `legacy/agent/graph.py`**。
+
+`[填]` 设计深链 → `docs/FRAMEWORK_DESIGN.md`、`docs/REFLECTION_GRAPH_DESIGN.md`（注明部分描述针对 legacy，阅前看日期）。
+
+---
+
+▸ **本章放什么**
+
+- 稳定后：10～20 行可运行示例 + capability 表。
+- 重构中：表可以写，代码块用 TODO；避免文档与 `builder.py` 漂移。
+
+---
+
+## 工具系统
+
+`[填]` `ToolBox` 自动发现 `@local_tool` / `@mcp_tool`。
+
+| 工具 | 类型 | 作用 |
 |------|------|------|
-| `RAG_search_tool` / `RAG_index_tool` | local | 检索 / 入库；查询期开关（HyDE、rerank、recall_n、top_k）可在 allow-range 内按调用切换 |
-| `math_tool` | local | 数值计算 |
-| markitdown | mcp | 文档 → Markdown（可选 OCR） |
-| web search | mcp | 联网搜索（Bocha） |
+| `RAG_search_tool` / `RAG_index_tool` | local | 检索 / 入库 |
+| web search | mcp | Bocha / Tavily |
+| markitdown | mcp | 文档 → Markdown |
 
-新增本地工具：在 `tools/LocalTool/` 写一个带类型注解的函数并加 `@local_tool` 即可被自动发现。
+`[选]` 新增本地工具：在 `tools/LocalTool/` 加函数 + 装饰器，一行说明即可。
 
 ---
 
-## 测试与评测
+▸ **本章放什么**
+
+- Agent 节已讲 RAG 绑定；这里只列**工具清单**和扩展方式。
+
+---
+
+## 评测
+
+`[暂缓]` **有 Easy Dataset + RAGChecker 结果后再填摘要表**；现阶段写「路线 + 占位命令」。
+
+### 评测路线（计划）
+
+`[填]` 文字说明（**不要**以 BEIR / `_eval_/rag_eval` 为主叙事）：
+
+1. **出题**：Easy Dataset 基于语料生成 QA（export JSONL）。
+2. **跑候选答案**：Agent 或 RAG 管线产出 candidates。
+3. **评分**：RAGChecker（+ 可选 rubric checklist）。
+
+`[填]` 与 pytest 边界一句：单元测试在 `tests/`；离线评测需 API key，**不进 CI**。
+
+### 复现命令（占位）
+
+`[暂缓]` 命令随脚本落地再填，例如：
 
 ```bash
-pytest                 # 全量
-pytest tests/rag       # 只测 RAG
-pytest tests/agent     # 只测 Agent / 反思
+# TODO: Easy Dataset export → enrich gold → run candidates → RAGChecker
+# python -m ... 
 ```
 
-- 测试结构与 marker：`docs/TESTING.md`；逐条解读：`docs/TEST_CATALOG.md`；如何写测试：`docs/TESTING_GUIDE.md`。
-- **评测状态：尚未运行系统化 eval。** 检索质量（命中率 / nDCG / BEIR）与 Agent 端到端表现待量化；计划见 `docs/WEEKLY_EVAL_PLAN.md`，结果记录在 `docs/eval_results.md`。
+### 结果摘要
+
+`[暂缓]`
+
+```markdown
+<!-- 示例结构，有数据后再打开
+| 配置 | RAGChecker 均分 | 备注 |
+|------|-----------------|------|
+| baseline | — | |
+| full | — | |
+-->
+```
+
+`[填]` 完整记录链到 **`docs/eval_results.md`**（新建或沿用，与 README 摘要分离）。
+
+### 历史 / 内部 eval
+
+`[选]` 若保留 `_eval_`（BEIR、HotpotQA 等）仅供开发参考，**单独一小节**注明「内部/历史，非推荐路径」，避免与 Easy Dataset 主线混淆。
+
+---
+
+▸ **本章放什么**
+
+- 现在：讲清**评什么、怎么评、结果放哪**；表格留空即可。
+- 将来：README 只放 1 个小表 + 复现三行命令；图表、ablation 进 `docs/eval_results.md`。
+
+---
+
+## 项目结构
+
+`[填]` 简表（一行职责，不展开文件树）：
+
+| 目录 | 职责 | 状态 |
+|------|------|------|
+| `rag/` | 建库 + 检索 + Qdrant | ✅ |
+| `get_start/` | 上手示例与 `runs/` trace | ✅ RAG / 🚧 Agent |
+| `agent/` | LangGraph Agent + capabilities | 🚧 |
+| `agent/` | 旧版 ReAct + 反思 pattern | legacy |
+| `tools/` | ToolBox、local/MCP 工具 | ✅ |
+| `llm/` | OpenAI 兼容 client | ✅ |
+| `tests/` | pytest | ✅ |
+| `docs/` | 设计、测试、评测文档 | 持续 |
+| `_eval_/` | 历史 BEIR 等离线 eval | 内部参考，非主评测路径 |
+
+---
+
+▸ **本章放什么**
+
+- 新人找代码用；**状态列**减少误用 legacy / WIP 模块。
+
+---
+
+## 测试
+
+`[填]`
+
+```bash
+pytest -c tests/pytest.ini -m "not slow and not requires_api"   # 日常
+pytest                                                           # 全量
+```
+
+`[填]` 链接：`docs/TESTING.md`、`docs/TESTING_GUIDE.md`。
+
+---
+
+▸ **本章放什么**
+
+- 命令 + 文档链接；marker 细节不进 README。
 
 ---
 
 ## 文档索引
 
+`[填]` 表格，只列**读者真的会点的**：
+
 | 文档 | 内容 |
 |------|------|
-| [`rag/README.md`](rag/README.md) | RAG 模块详解（开关、组件、Qdrant） |
-| `docs/FRAMEWORK_DESIGN.md` | 框架整体设计 |
-| `docs/REFLECTION_GRAPH_DESIGN.md` | 反思图（CRAG / Self-RAG / Feedback）设计 |
-| `docs/rag_pattern.md` | RAG 模式（small-to-big、contextual、HyDE…）说明 |
-| `docs/TESTING.md` · `docs/TESTING_GUIDE.md` · `docs/TEST_CATALOG.md` | 测试体系 |
-| `docs/WEEKLY_EVAL_PLAN.md` · `docs/eval_results.md` | 评测计划与结果 |
+| `docs/README_SKELETON.md` | 本 README 写作框架 |
+| `docs/rag_pattern.md` | RAG 模式与 profile 说明 |
+| `docs/FRAMEWORK_DESIGN.md` | 整体框架设计 |
+| `docs/REFLECTION_GRAPH_DESIGN.md` | 反思 / gate 设计（部分 legacy） |
+| `docs/TESTING.md` | pytest 说明 |
+| `docs/eval_results.md` | 评测跑分记录（待 Easy Dataset 结果） |
+| `docs/LANGGRAPH_DEPLOY.md` | 部署（若适用） |
+
+---
+
+▸ **本章放什么**
+
+- 索引表；避免 README 正文重复子文档长文。
+
+---
+
+## License / Acknowledgments
+
+`[选]` License 文件名。
+
+`[选]` 致谢：CRAG、Self-RAG、Easy Dataset、RAGChecker、BEIR（若用过）等。
+
+---
+
+▸ **本章放什么**
+
+- 开源必备元信息；个人项目可极简。
+
+---
+
+## 附录：从骨架到发布 README 的检查清单
+
+- [ ] 顶部状态与真实能力一致（RAG ✅ / Agent 🚧 / Eval 📋）
+- [ ] 快速开始命令在本机跑通并贴预期输出
+- [ ] 无失效路径（`rag_demo.py`、`rag/README.md`、`eval/` 等）
+- [ ] Agent 示例与 `agent` API 一致
+- [ ] 评测节不以 `_eval_` 为主；Easy Dataset + RAGChecker 占位已留
+- [ ] 深链文档存在或标「待写」
+- [ ] 删掉本骨架里的「▸ 本章放什么」说明块

@@ -1,7 +1,10 @@
-# Agent reflection patterns — capability toggles only.
+# Agent reflection patterns — capability toggles + system_prompt key.
+# Prompt bodies live in agent/prompt/system_prompt.yaml.
 # RAG deployment (collection, profile_id) comes from RequestConfig at runtime.
-#
-# Names follow v1-style aliases (interpretation A); not legacy agent/graph.py behavior.
+
+# LLM-view RAG context budget. Omit or null → 3 × retriever.top_k (arg_config.yaml).
+rag_context:
+  max_chunks: null
 
 patterns:
   crag:

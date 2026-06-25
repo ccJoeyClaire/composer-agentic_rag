@@ -19,6 +19,7 @@ from rag.context import (
     bind_retriever,
     get_active_context,
 )
+from rag.serialize import chunks_to_tool_json
 from rag.profile_schema import (
     TOP_K_KEY,
     index_profile_from_optional_args,
@@ -146,5 +147,5 @@ def RAG_search_tool(
         return "RAG retriever not bound. Call bind_rag_context() or bind_retriever() at startup."
 
     chunks = _run_async(retriever.aquery(query, top_k=eff[TOP_K_KEY]))
-    body = "\n\n---\n\n".join(c.content for c in chunks)
+    body = chunks_to_tool_json(chunks)
     return _append_notes(body, notes)

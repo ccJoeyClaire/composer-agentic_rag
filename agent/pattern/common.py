@@ -10,7 +10,12 @@ from langgraph.graph.state import CompiledStateGraph
 from agent.builder import build_agent
 from agent.capabilities.rag_profile_router.config import RagProfileRouterConfig
 from agent.config import AgentConfig
-from agent.pattern.config import PatternConfig, get_pattern
+from agent.pattern.config import (
+    PatternConfig,
+    RagContextConfig,
+    get_agent_pattern_config,
+    get_pattern,
+)
 from llm.client import LLMClient
 from rag.context import bind_rag_context
 from tools.tool_box import ToolBox
@@ -30,6 +35,7 @@ class RequestConfig:
 def _agent_config_from_request(
     request: RequestConfig,
     pattern: PatternConfig,
+    rag_context: RagContextConfig,
     *,
     llm: LLMClient,
     tool_box: ToolBox,
@@ -42,11 +48,14 @@ def _agent_config_from_request(
         enable_human_feedback=pattern.enable_human_feedback,
         enable_web_search=request.enable_web_search,
         rag_profile_router=RagProfileRouterConfig(profile_id=request.profile_id),
+        system_prompt_key=pattern.system_prompt_key,
+        rag_context_max_chunks=rag_context.max_chunks,
     )
 
 
 def build_graph(request: RequestConfig) -> CompiledStateGraph:
     """Bind RAG, assemble ``AgentConfig``, and return a compiled LangGraph."""
+    agent_patterns = get_agent_pattern_config(config_path=request.config_path)
     pattern = get_pattern(request.pattern_id, config_path=request.config_path)
     bind_rag_context(
         collection=request.collection,
@@ -57,6 +66,7 @@ def build_graph(request: RequestConfig) -> CompiledStateGraph:
     agent_config = _agent_config_from_request(
         request,
         pattern,
+        agent_patterns.rag_context,
         llm=llm,
         tool_box=tool_box,
     )

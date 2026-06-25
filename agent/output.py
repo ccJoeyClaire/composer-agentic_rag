@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypedDict
 
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 
 from agent.core.metadata.base import RAG_PROFILE_KEY
 from agent.core.metadata.schema import AgentMetadata
@@ -26,6 +26,7 @@ class MessageRecord(TypedDict, total=False):
     type: str
     content: str
     tool_calls: list[dict[str, object]]
+    tool_call_id: str
 
 
 class AgentHighlights(TypedDict, total=False):
@@ -59,6 +60,8 @@ def _message_to_record(message: BaseMessage) -> MessageRecord:
     }
     if isinstance(message, AIMessage):
         record["tool_calls"] = list(getattr(message, "tool_calls", None) or [])
+    elif isinstance(message, ToolMessage):
+        record["tool_call_id"] = message.tool_call_id
     return record
 
 

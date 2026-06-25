@@ -19,6 +19,7 @@ from agent.capabilities.retrieval_gate.verdict import (
 )
 from agent.core.constants import DEFAULT_RAG_TOOL_NAME
 from agent.core.state import AgentState, merge_metadata
+from agent.types import GateVerdict
 
 
 def _resolve_score_fn(config: RetrievalGateConfig):
@@ -61,13 +62,21 @@ async def retrieval_gate_node(
         )
 
     score_fn = _resolve_score_fn(capability_config)
-    scores = await score_fn(state, query, passages)
-    verdict, issues = compute_gate_verdict(
-        passages,
-        scores,
-        pass_threshold=capability_config.pass_threshold,
-    )
-    return merge_metadata(
+    scores: list[float] = []
+    verdict: str = "error"
+    issues: list[str] = []
+
+    for _ in range(capability_config.max_scoring_retries):
+        scores = await score_fn(state, query, passages)
+        verdict, issues = compute_gate_verdict(
+            passages,
+            scores,
+            pass_threshold=capability_config.pass_threshold,
+        )
+        if verdict != "error":
+            break
+
+    patch = merge_metadata(
         state,
         {
             GATE_VERDICT_KEY: verdict,
@@ -75,3 +84,6 @@ async def retrieval_gate_node(
             GATE_PASSAGES_SUMMARY_KEY: build_passages_summary(passages, scores),
         },
     )
+    if verdict == "error":
+        patch["error"] = issues[0] if issues else "retrieval gate scoring failed"
+    return patch

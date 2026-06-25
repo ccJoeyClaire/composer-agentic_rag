@@ -25,8 +25,9 @@ def compute_gate_verdict(
         return "empty", ["RAG tool returned no passages"]
 
     if len(scores) != len(passages):
-        return "low_quality", [
-            f"score count ({len(scores)}) does not match passage count ({len(passages)})"
+        return "error", [
+            "scoring failed: "
+            f"{len(scores)} scores for {len(passages)} passages; re-run gate"
         ]
 
     max_score = max(scores)

@@ -4,18 +4,17 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 
-RAG_PASSAGE_SEPARATOR = "\n\n---\n\n"
+from rag.serialize import LEGACY_PASSAGE_SEPARATOR, parse_tool_chunks
+
+RAG_PASSAGE_SEPARATOR = LEGACY_PASSAGE_SEPARATOR
 
 
 def split_rag_passages(raw: str) -> list[str]:
-    """Split ``RAG_search_tool`` output into individual passages."""
-    if not raw or not raw.strip():
-        return []
-    return [
-        part.strip()
-        for part in raw.split(RAG_PASSAGE_SEPARATOR)
-        if part.strip()
-    ]
+    """Split ``RAG_search_tool`` output into individual passage texts."""
+    chunks = parse_tool_chunks(raw)
+    if chunks:
+        return [chunk["content"] for chunk in chunks if chunk.get("content")]
+    return []
 
 
 def _latest_tool_batch(

@@ -14,8 +14,11 @@ from agent.core.metadata.schema import AgentMetadata
 class AgentState(TypedDict):
     """LangGraph state for agent.
 
-    ``messages`` is append-only via ``add_messages``. Capabilities read/write
-    ``metadata``; the LLM always sees the full message history.
+    ``messages`` is append-only via ``add_messages``. The first message should be a
+    ``SystemMessage`` is injected by the graph ``seed`` node from
+    ``agent/prompt/system_prompt.yaml``; callers must not supply their own.
+    Capabilities read/write ``metadata``. The LLM node may inject transient gate
+    context at call time without appending to ``messages``.
     """
 
     messages: Annotated[List[BaseMessage], add_messages]

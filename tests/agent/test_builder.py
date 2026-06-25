@@ -140,6 +140,16 @@ class TestRouteAfterTools:
         }
         assert route_after_tools(state, agent_config=_config(llm_stub)) == NodeName.LLM
 
+    def test_gate_fail_routes_to_gate_reject(self, llm_stub: MagicMock) -> None:
+        from agent.capabilities.retrieval_gate.metadata import GATE_VERDICT_KEY
+
+        state: AgentState = {
+            "messages": [AIMessage(content="answer", tool_calls=[])],
+            "metadata": {GATE_VERDICT_KEY: "low_quality"},
+        }
+        config = _config(llm_stub, enable_retrieval_gate=True)
+        assert route_after_llm(state, agent_config=config) == NodeName.GATE_REJECT
+
 
 class TestBuildAgent:
     @pytest.mark.parametrize(
@@ -163,5 +173,11 @@ class TestBuildAgent:
     def test_base_graph_has_llm_entry(self, llm_stub: MagicMock) -> None:
         graph = build_agent(_config(llm_stub))
         node_names = set(graph.get_graph().nodes)
+        assert NodeName.SEED in node_names
         assert NodeName.LLM in node_names
         assert "__start__" in node_names
+
+    def test_gate_enabled_graph_has_gate_reject(self, llm_stub: MagicMock) -> None:
+        graph = build_agent(_config(llm_stub, enable_retrieval_gate=True))
+        node_names = set(graph.get_graph().nodes)
+        assert NodeName.GATE_REJECT in node_names

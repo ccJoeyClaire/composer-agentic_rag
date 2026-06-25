@@ -18,6 +18,9 @@ ScorePassagesFn = Callable[
 DEFAULT_PASS_THRESHOLD = 0.5
 
 
+DEFAULT_MAX_SCORING_RETRIES = 2
+
+
 @dataclass
 class RetrievalGateConfig:
     """Settings for the retrieval quality gate."""
@@ -25,3 +28,4 @@ class RetrievalGateConfig:
     score_fn: ScorePassagesFn | None = None
     rerank_client: DashScopeRerankClient | None = None
     pass_threshold: float = DEFAULT_PASS_THRESHOLD
+    max_scoring_retries: int = DEFAULT_MAX_SCORING_RETRIES

@@ -43,6 +43,9 @@ def test_from_state_to_record_schema(request_config: RequestConfig) -> None:
     assert record["collection"] == "demo_collection"
     assert record["message_count"] == 4
     assert record["final_message"]["content"] == "Final answer."
+    tool_record = record["messages"][2]
+    assert tool_record["type"] == "ToolMessage"
+    assert tool_record["tool_call_id"] == "c1"
 
 
 def test_to_txt_uses_pretty_repr(request_config: RequestConfig) -> None:

@@ -21,6 +21,31 @@ META_RECORD_TYPE = "meta"
 CHUNK_RECORD_TYPE = "chunk"
 TRACE_RECORD_TYPE = "trace"
 
+LEGACY_PASSAGE_SEPARATOR = "\n\n---\n\n"
+RAG_NOTE_PREFIX = "\n\n[note] "
+
+_TOOL_META_KEYS = (
+    "chunk_id",
+    "heading_path",
+    "source",
+    "start",
+    "end",
+    "boundary_reason",
+)
+
+
+class ToolChunkRecord(TypedDict, total=False):
+    """One chunk as returned by ``RAG_search_tool`` (JSON array element)."""
+
+    content: str
+    score: float
+    chunk_id: str
+    heading_path: str
+    source: str
+    start: int
+    end: int
+    boundary_reason: str
+
 
 class ChunkRecord(TypedDict, total=False):
     """One indexed or retrieved chunk as a JSON-friendly record."""
@@ -157,6 +182,92 @@ def chunks_to_records(
     return [
         chunk_to_record(chunk, rank=index + 1, include_vectors=include_vectors)
         for index, chunk in enumerate(chunks)
+    ]
+
+
+def chunk_to_tool_record(chunk: Chunk) -> ToolChunkRecord:
+    """Map a :class:`Chunk` to the JSON shape returned by ``RAG_search_tool``."""
+    meta = chunk.metadata or {}
+    record: ToolChunkRecord = {
+        "content": chunk.content,
+        "score": chunk.score,
+    }
+    for key in _TOOL_META_KEYS:
+        if key in meta:
+            record[key] = meta[key]  # type: ignore[literal-required]
+    return record
+
+
+def chunks_to_tool_json(chunks: list[Chunk]) -> str:
+    """Serialize retrieved chunks for ``RAG_search_tool`` ToolMessage content."""
+    payload = [chunk_to_tool_record(chunk) for chunk in chunks]
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def split_tool_body_and_notes(raw: str) -> tuple[str, str]:
+    """Split tool output into JSON/legacy body and optional trailing ``[note]`` block."""
+    if RAG_NOTE_PREFIX in raw:
+        index = raw.index(RAG_NOTE_PREFIX)
+        return raw[:index], raw[index:]
+    return raw, ""
+
+
+def _coerce_tool_chunk_record(item: object) -> ToolChunkRecord | None:
+    if not isinstance(item, dict):
+        return None
+    content = item.get("content")
+    if not isinstance(content, str) or not content.strip():
+        return None
+    record: ToolChunkRecord = {"content": content}
+    score = item.get("score")
+    if isinstance(score, (int, float)):
+        record["score"] = float(score)
+    for key in _TOOL_META_KEYS:
+        value = item.get(key)
+        if value is not None:
+            record[key] = value  # type: ignore[literal-required]
+    return record
+
+
+def parse_tool_chunks_json(body: str) -> list[ToolChunkRecord] | None:
+    """Parse a JSON array of tool chunk records; ``None`` when not JSON."""
+    stripped = body.strip()
+    if not stripped.startswith("["):
+        return None
+    try:
+        data = json.loads(stripped)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, list):
+        return None
+    records: list[ToolChunkRecord] = []
+    for item in data:
+        record = _coerce_tool_chunk_record(item)
+        if record is not None:
+            records.append(record)
+    return records
+
+
+def split_legacy_passages(body: str) -> list[str]:
+    """Split pre-JSON ``RAG_search_tool`` output (``---`` separated plain text)."""
+    if not body or not body.strip():
+        return []
+    return [
+        part.strip()
+        for part in body.split(LEGACY_PASSAGE_SEPARATOR)
+        if part.strip()
+    ]
+
+
+def parse_tool_chunks(raw: str) -> list[ToolChunkRecord]:
+    """Parse ``RAG_search_tool`` output (JSON array or legacy ``---`` text)."""
+    body, _ = split_tool_body_and_notes(raw)
+    parsed = parse_tool_chunks_json(body)
+    if parsed is not None:
+        return parsed
+    return [
+        {"content": passage, "score": 0.0}
+        for passage in split_legacy_passages(body)
     ]
 
 

@@ -12,6 +12,7 @@ from agent.core.constants import (
     DEFAULT_RAG_TOOL_NAME,
     DEFAULT_WEB_TOOL_NAME,
 )
+from agent.prompt.load import default_system_prompt_key
 from llm.client import LLMClient
 from tools.tool_box import ToolBox
 
@@ -39,11 +40,15 @@ class AgentConfig:
     rag_tool_name: str = DEFAULT_RAG_TOOL_NAME
     web_tool_name: str = DEFAULT_WEB_TOOL_NAME
     max_rag_attempts: int = DEFAULT_MAX_RAG_ATTEMPTS
+    rag_context_max_chunks: int | None = None
 
     # Per-capability config (optional overrides)
     rag_profile_router: RagProfileRouterConfig | None = None
     retrieval_gate: RetrievalGateConfig | None = None
     human_feedback: HumanFeedbackConfig | None = None
+
+    # System prompt (key into ``agent/prompt/system_prompt.yaml``)
+    system_prompt_key: str = default_system_prompt_key()
 
 
 def eval_config(llm: LLMClient, *, tool_box: ToolBox | None = None) -> AgentConfig:

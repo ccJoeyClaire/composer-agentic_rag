@@ -20,12 +20,20 @@ _PATTERN_BOOL_FIELDS = (
 
 
 @dataclass(frozen=True)
+class RagContextConfig:
+    """Global RAG context budget for the LLM view (not per-pattern)."""
+
+    max_chunks: int | None = None
+
+
+@dataclass(frozen=True)
 class PatternConfig:
     """Capability toggles for one named reflection pattern."""
 
     enable_retrieval_gate: bool
     enable_rag_profile_router: bool
     enable_human_feedback: bool
+    system_prompt_key: str = "default"
 
 
 @dataclass(frozen=True)
@@ -33,6 +41,7 @@ class AgentPatternConfig:
     """Root document loaded from ``agent_arg_config.yaml``."""
 
     patterns: Dict[str, PatternConfig]
+    rag_context: RagContextConfig
 
 
 def _config_section(data: object, name: str) -> dict[str, object]:
@@ -46,10 +55,27 @@ def _config_section(data: object, name: str) -> dict[str, object]:
     return section
 
 
+def _parse_rag_context(data: object) -> RagContextConfig:
+    section = data if isinstance(data, dict) else {}
+    raw_max = section.get("max_chunks")
+    max_chunks: int | None
+    if raw_max is None:
+        max_chunks = None
+    else:
+        max_chunks = int(raw_max)
+        if max_chunks < 1:
+            raise ValueError("agent_arg_config.yaml: rag_context.max_chunks must be >= 1")
+    return RagContextConfig(max_chunks=max_chunks)
+
+
 def _parse_pattern(raw: object) -> PatternConfig:
     data = raw if isinstance(raw, dict) else {}
+    prompt_key = data.get("system_prompt", "default")
+    if not isinstance(prompt_key, str) or not prompt_key.strip():
+        prompt_key = "default"
     return PatternConfig(
-        **{key: bool(data.get(key, False)) for key in _PATTERN_BOOL_FIELDS}
+        **{key: bool(data.get(key, False)) for key in _PATTERN_BOOL_FIELDS},
+        system_prompt_key=prompt_key.strip(),
     )
 
 
@@ -64,7 +90,11 @@ def load_agent_pattern_config(config_path: Path) -> AgentPatternConfig:
         pattern_id: _parse_pattern(cfg)
         for pattern_id, cfg in patterns_raw.items()
     }
-    return AgentPatternConfig(patterns=patterns)
+    rag_context_raw = data.get("rag_context") if isinstance(data, dict) else None
+    return AgentPatternConfig(
+        patterns=patterns,
+        rag_context=_parse_rag_context(rag_context_raw),
+    )
 
 
 def get_agent_pattern_config(config_path: Path | None = None) -> AgentPatternConfig:

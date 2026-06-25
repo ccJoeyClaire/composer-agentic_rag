@@ -14,7 +14,9 @@ from agent.config import AgentConfig
 from agent.core.edges.after_llm import route_after_llm
 from agent.core.edges.after_tools import route_after_tools
 from agent.core.edges.names import NodeName
+from agent.core.nodes.gate_reject import strip_blocked_answer_node
 from agent.core.nodes.llm import llm_node
+from agent.core.nodes.seed import seed_system_prompt_node
 from agent.core.nodes.tools import tool_node
 from agent.core.state import AgentState
 from agent.core.tool_box import AgentToolBox
@@ -65,6 +67,8 @@ def _wire_edges(graph: StateGraph, config: AgentConfig) -> None:
     }
     if config.enable_rag_profile_router:
         llm_targets[NodeName.RAG_PROFILE_ROUTER] = NodeName.RAG_PROFILE_ROUTER
+    if config.enable_retrieval_gate:
+        llm_targets[NodeName.GATE_REJECT] = NodeName.GATE_REJECT
 
     graph.add_conditional_edges(NodeName.LLM, llm_route, llm_targets)
 
@@ -79,6 +83,7 @@ def _wire_edges(graph: StateGraph, config: AgentConfig) -> None:
 
     if config.enable_retrieval_gate:
         graph.add_edge(NodeName.RETRIEVAL_GATE, NodeName.LLM)
+        graph.add_edge(NodeName.GATE_REJECT, NodeName.LLM)
 
 
 def build_agent(config: AgentConfig) -> CompiledStateGraph:
@@ -87,12 +92,22 @@ def build_agent(config: AgentConfig) -> CompiledStateGraph:
     graph = StateGraph(AgentState)
 
     graph.add_node(
+        NodeName.SEED,
+        partial(
+            seed_system_prompt_node,
+            system_prompt_key=config.system_prompt_key,
+        ),
+    )
+    graph.add_node(
         NodeName.LLM,
         partial(
             llm_node,
             llm=config.llm,
             tool_box=tool_box,
             tool_calls=True,
+            enable_retrieval_gate=config.enable_retrieval_gate,
+            rag_tool_name=config.rag_tool_name,
+            rag_context_max_chunks=config.rag_context_max_chunks,
         ),
     )
     graph.add_node(
@@ -101,7 +116,10 @@ def build_agent(config: AgentConfig) -> CompiledStateGraph:
     )
 
     _register_capabilities(graph, config)
-    graph.set_entry_point(NodeName.LLM)
+    if config.enable_retrieval_gate:
+        graph.add_node(NodeName.GATE_REJECT, strip_blocked_answer_node)
+    graph.set_entry_point(NodeName.SEED)
+    graph.add_edge(NodeName.SEED, NodeName.LLM)
     _wire_edges(graph, config)
 
     return graph.compile(checkpointer=_resolve_checkpointer(config))
