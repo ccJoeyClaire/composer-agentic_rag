@@ -72,15 +72,34 @@ class RetrieveRunMeta:
     config_path: str
 
 
-class RetrieveTraceRecord(TypedDict):
-    """Full retrieval trace for one query."""
+class RetrieveTraceEntry(TypedDict):
+    """One query's retrieval trace (stages only; run meta lives on the dump root)."""
 
-    record_type: str
     query: str
-    profile_id: str
-    collection: str
     top_k: int
     stages: TraceStageRecord
+
+
+class RetrieveTraceDump(TypedDict):
+    """Pretty-printed retrieval trace file (``indent=4`` JSON)."""
+
+    meta: dict[str, object]
+    traces: list[RetrieveTraceEntry]
+
+
+class RetrieveTraceItem(TypedDict):
+    """One query trace inside a pretty-printed JSON dump."""
+
+    query: str
+    top_k: int
+    stages: TraceStageRecord
+
+
+class RetrieveTraceDump(TypedDict):
+    """Top-level shape for ``write_retrieve_traces_json`` output."""
+
+    meta: dict[str, object]
+    traces: list[RetrieveTraceItem]
 
 
 def _meta_to_dict(meta: IndexRunMeta | RetrieveRunMeta) -> dict[str, object]:
@@ -144,10 +163,8 @@ def chunks_to_records(
 def trace_to_record(
     result: RagResult,
     *,
-    profile_id: str,
-    collection: str,
     top_k: int,
-) -> RetrieveTraceRecord:
+) -> RetrieveTraceEntry:
     """Map an :func:`RAGRetriever.aquery_trace` result to a structured record."""
     trace_meta = result.metadata or {}
     stages: TraceStageRecord = {}
@@ -174,11 +191,8 @@ def trace_to_record(
 
     stages["final"] = chunks_to_records(result.chunks)
 
-    return RetrieveTraceRecord(
-        record_type=TRACE_RECORD_TYPE,
+    return RetrieveTraceEntry(
         query=result.query,
-        profile_id=profile_id,
-        collection=collection,
         top_k=top_k,
         stages=stages,
     )
@@ -191,6 +205,14 @@ def write_jsonl(path: Path, records: list[dict[str, object]]) -> None:
         for record in records:
             handle.write(json.dumps(record, ensure_ascii=False))
             handle.write("\n")
+
+
+def write_json(path: Path, payload: dict[str, object], *, indent: int = 4) -> None:
+    """Write a single pretty-printed JSON document."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=indent)
+        handle.write("\n")
 
 
 def write_index_chunks_jsonl(
@@ -209,22 +231,16 @@ def write_index_chunks_jsonl(
     write_jsonl(path, records)
 
 
-def write_retrieve_traces_jsonl(
+def write_retrieve_traces_json(
     path: Path,
     results: list[RagResult],
     *,
     meta: RetrieveRunMeta,
     top_k: int,
 ) -> None:
-    """Dump one retrieval trace per JSONL line after a meta header."""
-    records: list[dict[str, object]] = [_meta_to_dict(meta)]
-    records.extend(
-        trace_to_record(
-            result,
-            profile_id=meta.profile_id,
-            collection=meta.collection,
-            top_k=top_k,
-        )
-        for result in results
-    )
-    write_jsonl(path, records)
+    """Dump retrieval traces as pretty-printed JSON (``indent=4``)."""
+    payload: RetrieveTraceDump = {
+        "meta": _meta_to_dict(meta),
+        "traces": [trace_to_record(result, top_k=top_k) for result in results],
+    }
+    write_json(path, payload)

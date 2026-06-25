@@ -22,5 +22,6 @@ class RetrievalGateCapability:
             partial(
                 retrieval_gate_node,
                 capability_config=capability_config,
+                rag_tool_name=config.rag_tool_name,
             ),
         )

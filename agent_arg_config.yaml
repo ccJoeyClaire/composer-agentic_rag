@@ -1,0 +1,35 @@
+# Agent reflection patterns — capability toggles only.
+# RAG deployment (collection, profile_id) comes from RequestConfig at runtime.
+#
+# Names follow v1-style aliases (interpretation A); not legacy agent/graph.py behavior.
+
+patterns:
+  crag:
+    enable_retrieval_gate: true
+    enable_rag_profile_router: false
+    enable_human_feedback: false
+
+  self_rag:
+    enable_retrieval_gate: false
+    enable_rag_profile_router: true
+    enable_human_feedback: false
+
+  crag_self_rag:
+    enable_retrieval_gate: true
+    enable_rag_profile_router: true
+    enable_human_feedback: false
+
+  feedback:
+    enable_retrieval_gate: false
+    enable_rag_profile_router: false
+    enable_human_feedback: true
+
+  full:
+    enable_retrieval_gate: true
+    enable_rag_profile_router: true
+    enable_human_feedback: true
+
+  react:
+    enable_retrieval_gate: false
+    enable_rag_profile_router: false
+    enable_human_feedback: false

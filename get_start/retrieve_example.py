@@ -1,4 +1,4 @@
-"""Query an indexed Codex collection and dump the retrieval trace as JSONL.
+"""Query an indexed Codex collection and dump the retrieval trace as JSON.
 
 Prerequisites: run ``python -m get_start.index_example`` first (same collection).
 
@@ -15,13 +15,13 @@ from dotenv import load_dotenv
 
 from rag.build import build_RAG_retriever
 from rag.config import get_profile, get_rag_config
-from rag.serialize import RetrieveRunMeta, write_retrieve_traces_jsonl
+from rag.serialize import RetrieveRunMeta, write_retrieve_traces_json
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _PROFILE_ID = "baseline"
 _COLLECTION = f"getstart_codex_{_PROFILE_ID}"
 _QUERY = "在智能体优先的团队里，人类工程师的主要工作是什么？"
-_OUTPUT = Path(__file__).resolve().parent / "runs" / "retrieve.jsonl"
+_OUTPUT = Path(__file__).resolve().parent / "runs" / "retrieve.json"
 
 
 async def main() -> None:
@@ -48,8 +48,8 @@ async def main() -> None:
     #    生产路径用 aquery；此处用 aquery_trace 是为了透明化 pipeline。
     result = await retriever.aquery_trace(_QUERY, top_k=top_k)
 
-    # 5. 写出 JSONL：首行 run meta，随后一行一个 query 的 trace（stages.* 见 rag/serialize.py）。
-    write_retrieve_traces_jsonl(
+    # 5. 写出 pretty JSON（meta + traces，indent=4；stages.* 见 rag/serialize.py）。
+    write_retrieve_traces_json(
         _OUTPUT,
         [result],
         meta=RetrieveRunMeta(

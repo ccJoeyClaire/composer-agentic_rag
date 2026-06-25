@@ -15,9 +15,11 @@ from rag.base import (
 from rag.serialize import (
     META_RECORD_TYPE,
     IndexRunMeta,
+    RetrieveRunMeta,
     chunk_to_record,
     trace_to_record,
     write_index_chunks_jsonl,
+    write_retrieve_traces_json,
 )
 
 pytestmark = pytest.mark.unit
@@ -52,12 +54,7 @@ def test_trace_to_record_includes_small_retrieved_stage() -> None:
             TRACE_RETRIEVED_KEY: [parent],
         },
     )
-    record = trace_to_record(
-        result,
-        profile_id="baseline",
-        collection="getstart_codex_baseline",
-        top_k=3,
-    )
+    record = trace_to_record(result, top_k=3)
     stages = record["stages"]
     assert len(stages["small_retrieved"]) == 1
     assert stages["small_retrieved"][0]["chunk_id"] == "d::1"

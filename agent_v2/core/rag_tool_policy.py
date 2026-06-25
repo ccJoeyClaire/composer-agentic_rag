@@ -41,3 +41,76 @@ def restrict_rag_search_tool_schema(
 def rag_search_profile_arg_keys() -> frozenset[str]:
     """Keys the LLM may use to override search profile when router is enabled."""
     return frozenset(SEARCH_PROFILE_KEYS)
+
+
+if __name__ == "__main__":
+    import json
+
+    from agent_v2.core.constants import DEFAULT_RAG_TOOL_NAME
+
+    sample_schema: dict[str, Any] = {
+        "type": "function",
+        "function": {
+            "name": DEFAULT_RAG_TOOL_NAME,
+            "description": "Search the knowledge base and return relevant context.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    RAG_SEARCH_QUERY_ARG: {
+                        "type": "string",
+                        "description": "检索问题",
+                    },
+                    "use_hyde": {
+                        "type": "boolean",
+                        "description": "是否用 HyDE 改写查询向量",
+                    },
+                    "recall_n": {
+                        "type": "integer",
+                        "description": "rerank 前的向量召回条数",
+                    },
+                },
+                "required": [RAG_SEARCH_QUERY_ARG],
+            },
+        },
+    }
+
+    restricted = restrict_rag_search_tool_schema(
+        sample_schema,
+        rag_tool_name=DEFAULT_RAG_TOOL_NAME,
+    )
+
+    print("=== before (full override schema) ===")
+    print(json.dumps(sample_schema, indent=2, ensure_ascii=False))
+    print("\n=== after restrict_rag_search_tool_schema (query only) ===")
+    print(json.dumps(restricted, indent=2, ensure_ascii=False))
+    print("\n=== property keys removed ===")
+    before_keys = set(
+        sample_schema["function"]["parameters"]["properties"].keys()
+    )
+    after_keys = set(restricted["function"]["parameters"]["properties"].keys())
+    print(sorted(before_keys - after_keys))
+
+# python -m agent_v2.core.rag_tool_policy
+
+# === after restrict_rag_search_tool_schema (query only) ===
+# {
+#   "type": "function",
+#   "function": {
+#     "name": "RAG_search_tool",
+#     "description": "Search the knowledge base and return relevant context.",
+#     "parameters": {
+#       "type": "object",
+#       "properties": {
+#         "query": {
+#           "type": "string",
+#           "description": "检索问题"
+#         }
+#       },
+#       "required": [
+#         "query"
+#       ]
+#     }
+#   }
+# }
+
+# === property keys removed ===
