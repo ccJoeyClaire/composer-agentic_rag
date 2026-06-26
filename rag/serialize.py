@@ -21,6 +21,31 @@ META_RECORD_TYPE = "meta"
 CHUNK_RECORD_TYPE = "chunk"
 TRACE_RECORD_TYPE = "trace"
 
+LEGACY_PASSAGE_SEPARATOR = "\n\n---\n\n"
+RAG_NOTE_PREFIX = "\n\n[note] "
+
+_TOOL_META_KEYS = (
+    "chunk_id",
+    "heading_path",
+    "source",
+    "start",
+    "end",
+    "boundary_reason",
+)
+
+
+class ToolChunkRecord(TypedDict, total=False):
+    """One chunk as returned by ``RAG_search_tool`` (JSON array element)."""
+
+    content: str
+    score: float
+    chunk_id: str
+    heading_path: str
+    source: str
+    start: int
+    end: int
+    boundary_reason: str
+
 
 class ChunkRecord(TypedDict, total=False):
     """One indexed or retrieved chunk as a JSON-friendly record."""
@@ -72,15 +97,34 @@ class RetrieveRunMeta:
     config_path: str
 
 
-class RetrieveTraceRecord(TypedDict):
-    """Full retrieval trace for one query."""
+class RetrieveTraceEntry(TypedDict):
+    """One query's retrieval trace (stages only; run meta lives on the dump root)."""
 
-    record_type: str
     query: str
-    profile_id: str
-    collection: str
     top_k: int
     stages: TraceStageRecord
+
+
+class RetrieveTraceDump(TypedDict):
+    """Pretty-printed retrieval trace file (``indent=4`` JSON)."""
+
+    meta: dict[str, object]
+    traces: list[RetrieveTraceEntry]
+
+
+class RetrieveTraceItem(TypedDict):
+    """One query trace inside a pretty-printed JSON dump."""
+
+    query: str
+    top_k: int
+    stages: TraceStageRecord
+
+
+class RetrieveTraceDump(TypedDict):
+    """Top-level shape for ``write_retrieve_traces_json`` output."""
+
+    meta: dict[str, object]
+    traces: list[RetrieveTraceItem]
 
 
 def _meta_to_dict(meta: IndexRunMeta | RetrieveRunMeta) -> dict[str, object]:
@@ -141,13 +185,97 @@ def chunks_to_records(
     ]
 
 
+def chunk_to_tool_record(chunk: Chunk) -> ToolChunkRecord:
+    """Map a :class:`Chunk` to the JSON shape returned by ``RAG_search_tool``."""
+    meta = chunk.metadata or {}
+    record: ToolChunkRecord = {
+        "content": chunk.content,
+        "score": chunk.score,
+    }
+    for key in _TOOL_META_KEYS:
+        if key in meta:
+            record[key] = meta[key]  # type: ignore[literal-required]
+    return record
+
+
+def chunks_to_tool_json(chunks: list[Chunk]) -> str:
+    """Serialize retrieved chunks for ``RAG_search_tool`` ToolMessage content."""
+    payload = [chunk_to_tool_record(chunk) for chunk in chunks]
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def split_tool_body_and_notes(raw: str) -> tuple[str, str]:
+    """Split tool output into JSON/legacy body and optional trailing ``[note]`` block."""
+    if RAG_NOTE_PREFIX in raw:
+        index = raw.index(RAG_NOTE_PREFIX)
+        return raw[:index], raw[index:]
+    return raw, ""
+
+
+def _coerce_tool_chunk_record(item: object) -> ToolChunkRecord | None:
+    if not isinstance(item, dict):
+        return None
+    content = item.get("content")
+    if not isinstance(content, str) or not content.strip():
+        return None
+    record: ToolChunkRecord = {"content": content}
+    score = item.get("score")
+    if isinstance(score, (int, float)):
+        record["score"] = float(score)
+    for key in _TOOL_META_KEYS:
+        value = item.get(key)
+        if value is not None:
+            record[key] = value  # type: ignore[literal-required]
+    return record
+
+
+def parse_tool_chunks_json(body: str) -> list[ToolChunkRecord] | None:
+    """Parse a JSON array of tool chunk records; ``None`` when not JSON."""
+    stripped = body.strip()
+    if not stripped.startswith("["):
+        return None
+    try:
+        data = json.loads(stripped)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, list):
+        return None
+    records: list[ToolChunkRecord] = []
+    for item in data:
+        record = _coerce_tool_chunk_record(item)
+        if record is not None:
+            records.append(record)
+    return records
+
+
+def split_legacy_passages(body: str) -> list[str]:
+    """Split pre-JSON ``RAG_search_tool`` output (``---`` separated plain text)."""
+    if not body or not body.strip():
+        return []
+    return [
+        part.strip()
+        for part in body.split(LEGACY_PASSAGE_SEPARATOR)
+        if part.strip()
+    ]
+
+
+def parse_tool_chunks(raw: str) -> list[ToolChunkRecord]:
+    """Parse ``RAG_search_tool`` output (JSON array or legacy ``---`` text)."""
+    body, _ = split_tool_body_and_notes(raw)
+    parsed = parse_tool_chunks_json(body)
+    if parsed is not None:
+        return parsed
+    return [
+        {"content": passage, "score": 0.0}
+        for passage in split_legacy_passages(body)
+    ]
+
+
 def trace_to_record(
     result: RagResult,
     *,
-    profile_id: str,
-    collection: str,
     top_k: int,
-) -> RetrieveTraceRecord:
+) -> RetrieveTraceEntry:
     """Map an :func:`RAGRetriever.aquery_trace` result to a structured record."""
     trace_meta = result.metadata or {}
     stages: TraceStageRecord = {}
@@ -174,11 +302,8 @@ def trace_to_record(
 
     stages["final"] = chunks_to_records(result.chunks)
 
-    return RetrieveTraceRecord(
-        record_type=TRACE_RECORD_TYPE,
+    return RetrieveTraceEntry(
         query=result.query,
-        profile_id=profile_id,
-        collection=collection,
         top_k=top_k,
         stages=stages,
     )
@@ -191,6 +316,14 @@ def write_jsonl(path: Path, records: list[dict[str, object]]) -> None:
         for record in records:
             handle.write(json.dumps(record, ensure_ascii=False))
             handle.write("\n")
+
+
+def write_json(path: Path, payload: dict[str, object], *, indent: int = 4) -> None:
+    """Write a single pretty-printed JSON document."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=indent)
+        handle.write("\n")
 
 
 def write_index_chunks_jsonl(
@@ -209,22 +342,16 @@ def write_index_chunks_jsonl(
     write_jsonl(path, records)
 
 
-def write_retrieve_traces_jsonl(
+def write_retrieve_traces_json(
     path: Path,
     results: list[RagResult],
     *,
     meta: RetrieveRunMeta,
     top_k: int,
 ) -> None:
-    """Dump one retrieval trace per JSONL line after a meta header."""
-    records: list[dict[str, object]] = [_meta_to_dict(meta)]
-    records.extend(
-        trace_to_record(
-            result,
-            profile_id=meta.profile_id,
-            collection=meta.collection,
-            top_k=top_k,
-        )
-        for result in results
-    )
-    write_jsonl(path, records)
+    """Dump retrieval traces as pretty-printed JSON (``indent=4``)."""
+    payload: RetrieveTraceDump = {
+        "meta": _meta_to_dict(meta),
+        "traces": [trace_to_record(result, top_k=top_k) for result in results],
+    }
+    write_json(path, payload)

@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 from typing import Awaitable, Callable, NotRequired, TypedDict
 
-from agent.reflection.parsers import split_rag_chunks
-from agent.subgraph.CRAG import CragConfig, build_crag_subgraph
+from legacy.agent.reflection.parsers import split_rag_chunks
+from legacy.agent.subgraph.CRAG import CragConfig, build_crag_subgraph
 from rag.base import Chunk
 from tests.eval.gold_recall import GoldRagCase, recall_at_k
 

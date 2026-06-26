@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>QA rubric visual report</title>
+  <style>
+    body { font-family: sans-serif; margin: 2rem; max-width: 1100px; }
+    img { max-width: 100%; height: auto; border: 1px solid #ddd; }
+    table { border-collapse: collapse; margin: 1rem 0; }
+    th, td { border: 1px solid #ccc; padding: 0.4rem 0.7rem; text-align: right; }
+    th:first-child, td:first-child { text-align: left; }
+  </style>
+</head>
+<body>
+  <h1>QA rubric visual report</h1>
+  <h2>Summary</h2>
+  <table><thead><tr><th>profile</th><th>n</th><th>correct_rate</th><th>complete_rate</th></tr></thead><tbody><tr><td>react_baseline</td><td>27</td><td>0.739</td><td>0.580</td></tr><tr><td>react_crag_baseline</td><td>27</td><td>0.738</td><td>0.655</td></tr></tbody></table>
+  <h3>react_crag_baseline vs react_baseline</h3><table><thead><tr><th>metric</th><th>wins</th><th>ties</th><th>losses</th><th>winrate</th></tr></thead><tbody><tr><td>correct_rate</td><td>6</td><td>16</td><td>5</td><td>0.519</td></tr><tr><td>complete_rate</td><td>6</td><td>18</td><td>3</td><td>0.556</td></tr></tbody></table>
+  <section><h2>Profile summary</h2><img src="profile_summary.png" alt="Profile summary"></section><section><h2>Per-query correct_rate</h2><img src="heatmap_correct.png" alt="Per-query correct_rate"></section><section><h2>Per-query complete_rate</h2><img src="heatmap_complete.png" alt="Per-query complete_rate"></section><section><h2>By question type</h2><img src="question_type_breakdown.png" alt="By question type"></section><section><h2>Delta vs react_baseline</h2><img src="delta_vs_react_baseline.png" alt="Delta vs react_baseline"></section><section><h2>Top rubric failures (all profiles)</h2><img src="top_failures.png" alt="Top rubric failures (all profiles)"></section>
+</body>
+</html>

@@ -146,7 +146,7 @@ def build_RAG_retriever(
         bool, Field(description="True 时使用 Qdrant :memory:，无需 Docker")
     ] = False,
     use_reranker: Annotated[
-        bool, Field(description="是否挂载 CrossEncoder 精排")
+        bool, Field(description="是否挂载 reranker 精排（DashScope 或 CrossEncoder）")
     ] = False,
     use_contextual: Annotated[
         bool, Field(description="是否启用 ContextualEnricher（查询拼接上下文）")
@@ -174,7 +174,7 @@ def build_RAG_retriever(
     """组装查询用的 :class:`RAGRetriever`（transform → retrieve → rerank）。"""
     from .document_augmentation.context_enricher import ContextualEnricher
     from .query_transformer.hyde import HyDETransformer
-    from .reranker.cross_encoder_reranker import CrossEncoderReranker
+    from .reranker.factory import make_reranker
     from .retriever.small_to_big_retriever import SmallToBigRetriever
     from .retriever.vector_retriever import VectorRetriever
 
@@ -201,7 +201,7 @@ def build_RAG_retriever(
 
     return RAGRetriever(
         retriever=retriever,
-        reranker=CrossEncoderReranker() if use_reranker else None,
+        reranker=make_reranker(enabled=use_reranker),
         query_transformer=HyDETransformer() if use_hyde else None,
         contextual_enricher=ContextualEnricher() if use_contextual else None,
         recall_n=resolved_recall_n,
@@ -344,9 +344,4 @@ def build_search_request_from_cli(args: argparse.Namespace) -> BuildSearchReques
     )
 
 
-if __name__ == "__main__":
-    def demo() -> None:
-        """Smoke demo: index sample text then search (fixed args, no CLI)."""
-        ...
 
-    demo()
