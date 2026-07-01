@@ -15,7 +15,11 @@ from rag.build import (
     build_RAG_indexer,
     build_RAG_retriever,
 )
-from rag.config import DEFAULT_PROFILE_ID, get_rag_config
+from rag.config import (
+    DEFAULT_INDEX_PROFILE_ID,
+    DEFAULT_RETRIEVE_PROFILE_ID,
+    get_rag_config,
+)
 from rag.core import RAGIndexer, RAGRetriever
 from rag.embedder.openai_embedder import OpenAIEmbedder
 from rag.profile_schema import (
@@ -216,11 +220,25 @@ def reset_rag_context() -> RagToolContext:
     return _active_context
 
 
+async def aclose_rag_bindings() -> None:
+    """Close shared store and drop cached retriever/indexer variants."""
+    ctx = get_active_context()
+    if ctx.store is not None:
+        await ctx.store.aclose()
+        ctx.store = None
+    ctx.embedder = None
+    ctx._retriever_cache.clear()
+    ctx._indexer_cache.clear()
+    ctx.fixed_retriever = None
+    ctx.fixed_indexer = None
+
+
 def bind_rag_context(
     *,
     collection: str,
     in_memory: bool = False,
-    profile_id: str = DEFAULT_PROFILE_ID,
+    index_profile_id: str = DEFAULT_INDEX_PROFILE_ID,
+    retrieve_profile_id: str = DEFAULT_RETRIEVE_PROFILE_ID,
     default_top_k: int | None = None,
     default_recall_n: int | None = None,
     max_recall_n: int | None = None,
@@ -236,9 +254,9 @@ def bind_rag_context(
 ) -> RagToolContext:
     """Bind shared store/embedder plus deployment defaults and allow-range gates.
 
-    Default search/index bools come from ``arg_config.yaml`` → ``profiles.<id>``
-    (default ``baseline``). Each tool call may override any pipeline flag; index
-    and search profiles are independent.
+    Default index/search bools come from ``arg_config.yaml`` →
+    ``index_profiles.<id>`` and ``retrieve_profiles.<id>``. Each tool call may
+    override any pipeline flag; index and search profiles are independent.
     """
     global _active_context
 
@@ -249,7 +267,7 @@ def bind_rag_context(
         max_recall_n if max_recall_n is not None else retriever_cfg.recall_n
     )
 
-    search_defaults = default_search_profile(profile_id)
+    search_defaults = default_search_profile(retrieve_profile_id)
     if default_recall_n is not None:
         search_defaults[RECALL_N_KEY] = default_recall_n
     if default_top_k is not None:
@@ -261,7 +279,7 @@ def bind_rag_context(
         store=shared_store,
         embedder=shared_embedder,
         default_search_profile=search_defaults,
-        default_index_profile=default_index_profile(profile_id),
+        default_index_profile=default_index_profile(index_profile_id),
         allow_token_chunker=allow_token_chunker,
         allow_contextual=allow_contextual,
         allow_small_to_big=allow_small_to_big,

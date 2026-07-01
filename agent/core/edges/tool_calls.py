@@ -6,7 +6,7 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 
-from agent.core.constants import DEFAULT_RAG_TOOL_NAME, DEFAULT_WEB_TOOL_NAME
+from agent.core.tool_box import DEFAULT_RAG_TOOL_NAME, DEFAULT_WEB_TOOL_NAME
 from agent.core.state import AgentState
 
 

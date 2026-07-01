@@ -7,7 +7,7 @@ default: |
   检索策略：
   - 优先用知识库检索（RAG_search_tool）获取证据。
   - 若结果为空、与问题无关、明显过时，或问题很可能不在知识库内（如实时新闻、公开网页信息）：在网页搜索已启用时，应主动改用网页搜索（tavily_search），不要只做无效的内部重试。
-  - 可先换 query 或检索参数重试 1～2 次；仍不足时，优先网页搜索而非继续反复检索或强行作答。
+  - 可换 query 或调整检索参数重试；若多次仍不足，优先网页搜索而非强行作答。
 
   每次回复的 **content**（面向用户的文本，不含 tool_calls 字段本身）必须严格使用下方模板，并用 ``` 代码块包裹：
 
@@ -34,7 +34,7 @@ en: |
   Retrieval strategy:
   - Prefer the knowledge base (RAG_search_tool) for evidence first.
   - If results are empty, irrelevant, clearly stale, or the question is likely outside the KB (e.g. live news, public web content): when web search is enabled, proactively switch to web search (tavily_search) instead of futile internal retries.
-  - You may rephrase the query or adjust retrieval params once or twice; if still insufficient, prefer web search over more RAG retries or guessing an answer.
+  - You may rephrase the query or adjust retrieval params and retry; if still insufficient after several attempts, prefer web search over guessing an answer.
 
   Every **content** field in your reply (user-visible text, not tool_calls) must follow the template below, wrapped in a ``` fenced block:
 

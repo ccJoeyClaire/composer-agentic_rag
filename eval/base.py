@@ -1,80 +1,123 @@
-
 from __future__ import annotations
 
 from typing import Literal, TypedDict
 
+from agent.output import AgentRunRecord
+from rag.serialize import RetrieveTraceEntry
+
 
 # ---------------------------------------------------------------------------
-# Data Structures
+# Gold set (QA generator output)
 # ---------------------------------------------------------------------------
 
-class GoldQAPair(TypedDict):
-    """Minimal gold QA used by infer / RAGChecker assembly."""
 
-    query_id: str
-    gold_question: str  # retrieval-ready question
-    gt_answer: str      # concise, high-information reference answer
+class GoldSample(TypedDict):
+    """One gold row from the QA generator.
 
-
-class AgentRunnerConfig(TypedDict, total=False):
-    """Agent-side settings for one eval runner. Fields TBD."""
-
-    pass
-
-
-class RagRunnerConfig(TypedDict, total=False):
-    """RAG index / retrieval settings for one eval runner. Fields TBD."""
-
-    pass
-
-
-class PipelineRunner(TypedDict):
-    """One infer arm configuration (maps to a ``run_id`` in the eval matrix)."""
-
-    runner_id: str
-    agent_config: AgentRunnerConfig
-    rag_config: RagRunnerConfig
-
-
-class RetrievedChunk(TypedDict):
-    """One chunk in RAGChecker's ``retrieved_context`` wire format."""
-
-    doc_id: str  # chunk_id when available, else source filename
-    text: str    # raw chunk content (no contextual header prefix)
-
-
-class InferenceRecord(TypedDict):
-    """Per-query infer output only.
-
-    Runner identity (``runner_id``, profile, arm, configs) lives in
-    :class:`PipelineRunner` and is joined at assembly time — not duplicated here.
-    Infer JSON files are already scoped to one run (path encodes ``run_id``).
+    ``user_question`` simulates end-user phrasing (agent eval input).
+    ``gold_query`` is retrieval-ready text (direct RAG eval input).
     """
 
     query_id: str
+    user_question: str
+    gold_query: str
+    gt_answer: str
+
+
+# ---------------------------------------------------------------------------
+# Eval matrix — one arm per runner_id
+# ---------------------------------------------------------------------------
+
+
+class AgentArmConfig(TypedDict, total=False):
+    """Agent graph settings for ``mode='agent'`` runners."""
+
+    pattern_id: str
+    profile_id: str
+    enable_web_search: bool
+
+
+class RagArmConfig(TypedDict, total=False):
+    """RAG retriever settings for ``mode='rag'`` runners."""
+
+    profile_id: str
+    top_k: int
+
+
+class EvalRunner(TypedDict):
+    """One infer arm: selects collection + agent or RAG profile."""
+
+    runner_id: str
+    mode: Literal["agent", "rag"]
+    collection: str
+    agent_config: AgentArmConfig
+    rag_config: RagArmConfig
+
+# ---------------------------------------------------------------------------
+# Infer stage artifacts (per query, before assembly)
+# ---------------------------------------------------------------------------
+
+
+class AgentInferArtifact(TypedDict):
+    """Agent infer dump: ``OutputState.to_record_schema()`` plus eval join keys.
+
+    Written to ``data/infer/{runner_id}/agent/{query_id}.json``.
+    ``run`` holds messages, metadata (incl. ``retrieved_context``), and
+    ``final_message`` — the JSON-safe form of post-``ainvoke`` state, not live
+    :class:`agent.core.state.AgentState`.
+    """
+
+    query_id: str
+    invoked_query: str  # ``GoldSample.user_question``
+    run: AgentRunRecord
+
+
+class RagInferArtifact(TypedDict):
+    """RAG infer dump: retrieval trace + LLM answer for one gold row.
+
+    Written to ``data/infer/{runner_id}/rag/{query_id}.json``.
+    ``trace`` matches ``get_start.retrieve_example`` stage snapshots;
+    ``generator_response`` comes from LLM given ``user_question`` + ``final`` chunks.
+    """
+
+    query_id: str
+    user_question: str   # LLM prompt context
+    gold_query: str      # ``trace.query`` — what retrieval ran on
+    trace: RetrieveTraceEntry
     generator_response: str
-    retrieved_context: list[RetrievedChunk]
 
 
-class RagCheckerSample(TypedDict):
-    """One ``results[]`` row: gold + one runner's inference for a single query.
+# ---------------------------------------------------------------------------
+# RAGChecker wire format
+# ---------------------------------------------------------------------------
 
-    Serialized to RAGChecker as ``query`` / ``response`` / ``gt_answer``;
-    internal names stay domain-specific (see :mod:`eval.assemble`).
-    """
 
-    runner_id: str
+class CheckerContextChunk(TypedDict):
+    """One chunk in ``retrieved_context`` passed to RAGChecker."""
+
+    doc_id: str  # ``{source}|{heading_path}``
+    text: str    # raw chunk body (no contextual header prefix)
+
+
+class CheckerSample(TypedDict):
+    """One ``results[]`` row in a ``CheckerInput`` batch (gold + infer, pre-score)."""
+
     query_id: str
     gold_question: str
     gt_answer: str
     generator_response: str
-    retrieved_context: list[RetrievedChunk]
+    retrieved_context: list[CheckerContextChunk]
 
 
-class RagCheckerInput(TypedDict):
-    """Top-level RAGChecker input file."""
+class CheckerInput(TypedDict):
+    """Top-level JSON file for one ``runner_id`` (``evaluate()`` batch input)."""
 
-    results: list[RagCheckerSample]
+    results: list[CheckerSample]
+
+
+# ---------------------------------------------------------------------------
+# RAGChecker metrics (score stage output)
+# ---------------------------------------------------------------------------
 
 
 class OverallMetrics(TypedDict, total=False):
@@ -97,11 +140,8 @@ class GeneratorMetrics(TypedDict, total=False):
     faithfulness: float
 
 
-class RagCheckerRunMetrics(TypedDict, total=False):
-    """Aggregate metrics for one ``evaluate()`` call over a full ``results`` batch.
-
-    RAGChecker averages across all samples; this is **not** a per-query list.
-    """
+class CheckerRunMetrics(TypedDict, total=False):
+    """Aggregate metrics from one ``evaluate()`` over a full ``CheckerInput``."""
 
     overall_metrics: OverallMetrics
     retriever_metrics: RetrieverMetrics

@@ -57,7 +57,8 @@ def full_rag_context(mock_embedder, in_memory_vector_store, reset_rag_bindings):
         in_memory=True,
         store=in_memory_vector_store,
         embedder=mock_embedder,
-        profile_id="baseline",
+        index_profile_id="baseline",
+        retrieve_profile_id="rerank_contextual",
         max_recall_n=50,
     )
     return get_active_context()
@@ -365,7 +366,8 @@ class TestProfileDefaultsAndGates:
             in_memory=True,
             store=in_memory_vector_store,
             embedder=mock_embedder,
-            profile_id="baseline",
+            index_profile_id="baseline",
+            retrieve_profile_id="rerank_contextual",
         )
         assert ctx.default_search_profile[USE_SMALL_TO_BIG_KEY] is False
         assert ctx.default_search_profile[USE_CONTEXTUAL_KEY] is True

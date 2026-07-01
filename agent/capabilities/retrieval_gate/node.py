@@ -17,7 +17,7 @@ from agent.capabilities.retrieval_gate.verdict import (
     build_passages_summary,
     compute_gate_verdict,
 )
-from agent.core.constants import DEFAULT_RAG_TOOL_NAME
+from agent.core.tool_box import DEFAULT_RAG_TOOL_NAME
 from agent.core.state import AgentState, merge_metadata
 from agent.types import GateVerdict
 

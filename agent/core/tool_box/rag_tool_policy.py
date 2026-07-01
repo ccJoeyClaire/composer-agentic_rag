@@ -46,7 +46,7 @@ def rag_search_profile_arg_keys() -> frozenset[str]:
 if __name__ == "__main__":
     import json
 
-    from agent.core.constants import DEFAULT_RAG_TOOL_NAME
+    from agent.core.tool_box.constants import DEFAULT_RAG_TOOL_NAME
 
     sample_schema: dict[str, Any] = {
         "type": "function",
@@ -90,7 +90,7 @@ if __name__ == "__main__":
     after_keys = set(restricted["function"]["parameters"]["properties"].keys())
     print(sorted(before_keys - after_keys))
 
-# python -m agent.core.rag_tool_policy
+# python -m agent.core.tool_box.rag_tool_policy
 
 # === after restrict_rag_search_tool_schema (query only) ===
 # {

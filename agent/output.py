@@ -44,7 +44,8 @@ class AgentRunRecord(TypedDict):
     pattern_id: str
     query: str
     collection: str
-    profile_id: str
+    index_profile_id: str
+    retrieve_profile_id: str
     enable_web_search: bool
     metadata: dict[str, object]
     highlights: AgentHighlights
@@ -111,7 +112,8 @@ class OutputState:
             pattern_id=self.request_config.pattern_id,
             query=self.query,
             collection=self.request_config.collection,
-            profile_id=self.request_config.profile_id,
+            index_profile_id=self.request_config.index_profile_id,
+            retrieve_profile_id=self.request_config.retrieve_profile_id,
             enable_web_search=self.request_config.enable_web_search,
             metadata=meta,
             highlights=highlights,

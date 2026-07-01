@@ -1,4 +1,4 @@
-"""ToolBox wrapper — filters tools by agent capability flags."""
+"""AgentToolBox wrapper — filters tools by agent capability flags."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from typing import Any, Callable, Dict, List
 
 from tools.tool_box import ToolBox, ToolResult
 
-from agent.core.constants import DEFAULT_RAG_TOOL_NAME, DEFAULT_WEB_TOOL_NAME
-from agent.core.rag_tool_policy import (
+from agent.core.tool_box.constants import DEFAULT_RAG_TOOL_NAME, DEFAULT_WEB_TOOL_NAME
+from agent.core.tool_box.rag_tool_policy import (
     rag_search_args_query_only,
     restrict_rag_search_tool_schema,
 )

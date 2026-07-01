@@ -23,7 +23,7 @@ from agent.capabilities.retrieval_gate.rag_context import (
     split_rag_passages,
 )
 from agent.capabilities.retrieval_gate.verdict import compute_gate_verdict
-from agent.core.constants import DEFAULT_RAG_TOOL_NAME
+from agent.core.tool_box import DEFAULT_RAG_TOOL_NAME
 from agent.core.state import AgentState
 
 pytestmark = pytest.mark.unit

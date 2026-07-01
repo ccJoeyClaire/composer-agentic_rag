@@ -6,13 +6,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agent.core.constants import DEFAULT_RAG_TOOL_NAME
-from agent.core.rag_tool_policy import (
+from agent.core.tool_box import AgentToolBox, DEFAULT_RAG_TOOL_NAME
+from agent.core.tool_box.rag_tool_policy import (
     RAG_SEARCH_QUERY_ARG,
     rag_search_args_query_only,
     restrict_rag_search_tool_schema,
 )
-from agent.core.tool_box import AgentToolBox
 from rag.profile_schema import USE_HYDE_KEY
 from tools.tool_box import ToolBox
 
