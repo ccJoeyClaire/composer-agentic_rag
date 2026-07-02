@@ -84,3 +84,7 @@ ehthumbs.db
 logs/
 tmp/
 temp/
+
+# --- Legacy code ---
+legacy/
+

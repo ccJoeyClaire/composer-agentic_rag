@@ -27,7 +27,11 @@ from agent.pattern.config import get_agent_pattern_config
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 RUNS_DIR = Path(__file__).resolve().parent / "runs" / "agent"
 
-SMOKE_PATTERNS = ("self_rag", "crag", "crag_self_rag")
+SMOKE_PATTERNS = (
+    # "self_rag", 
+    "crag", 
+    "crag_self_rag"
+)
 
 # preset_id → (index_profile_id, retrieve_profile_id)
 PRESETS: dict[str, tuple[str, str]] = {

@@ -44,14 +44,10 @@ def _validate_profile(
     profile: RagSearchProfile,
     config: RagProfileRouterConfig,
 ) -> RagProfile:
-    """Merge defaults, apply deployment gates, and clamp numeric fields."""
+    """Merge defaults and clamp numeric fields."""
     validated, _ = normalize_search_profile(
         profile or None,
         defaults=config.resolved_defaults(),
-        allow_contextual=config.allow_contextual,
-        allow_small_to_big=config.allow_small_to_big,
-        allow_hyde=config.allow_hyde,
-        allow_reranker=config.allow_reranker,
         max_recall_n=config.resolved_max_recall_n(),
         max_top_k=config.max_top_k,
     )

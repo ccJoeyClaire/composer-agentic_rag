@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from agent.config import AgentConfig
 from agent.core.edges.names import NodeName
-from agent.core.edges.tool_calls import last_batch_included_rag
+from agent.core.edges.tool_calls import last_batch_included_scorable_evidence
 from agent.core.state import AgentState
 
 
@@ -13,9 +13,9 @@ def route_after_tools(state: AgentState, *, agent_config: AgentConfig) -> str:
 
     Clarification uses ``interrupt()`` inside ``request_clarification``; no extra node.
     """
-    if agent_config.enable_retrieval_gate and last_batch_included_rag(
+    if agent_config.enable_retrieval_gate and last_batch_included_scorable_evidence(
         state,
-        rag_tool_name=agent_config.rag_tool_name,
+        agent_config=agent_config,
     ):
         return NodeName.RETRIEVAL_GATE
 

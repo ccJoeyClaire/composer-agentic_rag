@@ -31,8 +31,11 @@ def build_gate_context_message(meta: AgentMetadata) -> SystemMessage | None:
         lines.append("Issues: " + "; ".join(issues))
     if verdict in ("low_quality", "empty"):
         lines.append(
-            "You must NOT produce a final answer yet. Retry retrieval with a "
-            "different query, adjust search parameters, or use web search."
+            "Treat the current retrieval as insufficient — do not assume the passages "
+            "are adequate evidence. Retry retrieval with a different query, adjust "
+            "search parameters, or use web search when enabled. If you have exhausted "
+            "reasonable retrieval and still cannot answer, you may give a final answer "
+            "that begins with “证据不足” or “无法基于已有检索结果” (or the English equivalents)."
         )
     return SystemMessage(content="\n".join(lines))
 

@@ -15,7 +15,7 @@ from agent.capabilities.retrieval_gate.metadata import (
 )
 
 
-def test_build_gate_context_message_low_quality_includes_hard_block() -> None:
+def test_build_gate_context_message_low_quality_suggests_retry_not_hard_block() -> None:
     message = build_gate_context_message(
         {
             GATE_VERDICT_KEY: "low_quality",
@@ -25,7 +25,8 @@ def test_build_gate_context_message_low_quality_includes_hard_block() -> None:
     )
     assert message is not None
     assert "low_quality" in message.content
-    assert "must NOT produce a final answer" in message.content
+    assert "insufficient" in message.content.lower() or "证据不足" in message.content
+    assert "must NOT produce a final answer" not in message.content
 
 
 def test_build_gate_context_message_error_returns_none() -> None:

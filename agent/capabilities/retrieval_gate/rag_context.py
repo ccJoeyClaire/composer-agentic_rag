@@ -36,16 +36,28 @@ def extract_latest_rag_context(
     *,
     rag_tool_name: str,
 ) -> tuple[str, str] | None:
-    """Return ``(query, raw_content)`` for the latest RAG tool in the last batch."""
-    ai_msg, tool_messages = _latest_tool_batch(messages)
-    if ai_msg is None or not ai_msg.tool_calls:
+    """Return ``(user_query, raw_rag_content)`` for the latest RAG tool in the last batch."""
+    from agent.capabilities.retrieval_gate.evidence import (
+        EVIDENCE_SOURCE_RAG,
+        extract_latest_evidence_batch,
+        extract_user_query,
+    )
+
+    batch = extract_latest_evidence_batch(
+        messages,
+        rag_tool_name=rag_tool_name,
+        web_tool_name="__unused__",
+    )
+    if batch is None or EVIDENCE_SOURCE_RAG not in batch.sources:
         return None
 
+    ai_msg, tool_messages = _latest_tool_batch(messages)
+    if ai_msg is None:
+        return None
     call_by_id = {call["id"]: call for call in ai_msg.tool_calls}
     for tool_msg in reversed(tool_messages):
         call = call_by_id.get(tool_msg.tool_call_id)
         if call is None or call["name"] != rag_tool_name:
             continue
-        query = str(call["args"].get("query", ""))
-        return query, str(tool_msg.content or "")
+        return extract_user_query(messages), str(tool_msg.content or "")
     return None

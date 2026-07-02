@@ -17,7 +17,8 @@ from agent.pattern.config import (
     get_pattern,
 )
 from llm.client import LLMClient
-from rag.context import aclose_rag_bindings, bind_rag_context
+from rag.context import bind_rag
+from tools.context import ToolContextBundle
 from tools.tool_box import ToolBox
 
 
@@ -39,11 +40,12 @@ class AgentRun:
 
     graph: CompiledStateGraph
     llm: LLMClient
+    tool_box: ToolBox
 
     async def aclose(self) -> None:
-        """Release LLM httpx pools and the active RAG store."""
+        """Release LLM httpx pools and tool deployment contexts."""
         await self.llm.aclose()
-        await aclose_rag_bindings()
+        await self.tool_box.aclose()
 
 
 def _agent_config_from_request(
@@ -73,13 +75,15 @@ def build_run(request: RequestConfig) -> AgentRun:
     """Bind RAG, assemble ``AgentConfig``, and return graph + owned resources."""
     agent_patterns = get_agent_pattern_config(config_path=request.config_path)
     pattern = get_pattern(request.pattern_id, config_path=request.config_path)
-    bind_rag_context(
+    bundle = ToolContextBundle()
+    bind_rag(
+        bundle,
         collection=request.collection,
         index_profile_id=request.index_profile_id,
         retrieve_profile_id=request.retrieve_profile_id,
     )
     llm = LLMClient()
-    tool_box = ToolBox()
+    tool_box = ToolBox(context=bundle)
     agent_config = _agent_config_from_request(
         request,
         pattern,
@@ -87,7 +91,7 @@ def build_run(request: RequestConfig) -> AgentRun:
         llm=llm,
         tool_box=tool_box,
     )
-    return AgentRun(graph=build_agent(agent_config), llm=llm)
+    return AgentRun(graph=build_agent(agent_config), llm=llm, tool_box=tool_box)
 
 
 def build_graph(request: RequestConfig) -> CompiledStateGraph:

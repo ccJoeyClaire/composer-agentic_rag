@@ -71,11 +71,6 @@ class TestValidateProfile:
         validated = _validate_profile({"recall_n": 999}, config)
         assert validated["recall_n"] == 10
 
-    def test_disables_gated_bool(self) -> None:
-        config = RagProfileRouterConfig(allow_hyde=False)
-        validated = _validate_profile({PROFILE_USE_HYDE_KEY: True}, config)
-        assert validated[PROFILE_USE_HYDE_KEY] is False
-
 
 @pytest.mark.asyncio
 async def test_rag_profile_router_writes_metadata(llm_stub) -> None:

@@ -1,5 +1,0 @@
-{
-  "dataset_id": "smoke",
-  "adapter": "native",
-  "corpus": "manifest.jsonl"
-}

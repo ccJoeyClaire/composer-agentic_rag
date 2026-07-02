@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from tools.registry import discover_packages, get_decorated_tools
+from tools.registry import discover_packages, get_registered_tools
 from tools.tool_box import ToolBox
 
 pytestmark = pytest.mark.unit
@@ -12,7 +12,7 @@ pytestmark = pytest.mark.unit
 
 def test_mcp_registry_paths():
     discover_packages("tools.MCPTool")
-    mcp_tools = [t for t in get_decorated_tools().values() if t.source == "mcp"]
+    mcp_tools = [t for t in get_registered_tools().values() if t.source == "mcp"]
     paths = {t.tool_path for t in mcp_tools}
     assert len(mcp_tools) == 4
     assert "tools.MCPTool.markitdown_tool.convert_document" in paths

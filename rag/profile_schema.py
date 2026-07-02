@@ -135,27 +135,12 @@ def normalize_search_profile(
     profile: RagSearchProfile | None,
     *,
     defaults: RagSearchProfile,
-    allow_contextual: bool,
-    allow_small_to_big: bool,
-    allow_hyde: bool,
-    allow_reranker: bool,
     max_recall_n: int,
     max_top_k: int | None = None,
 ) -> tuple[RagSearchProfile, list[str]]:
-    """Merge defaults, apply deployment gates, and clamp numeric fields."""
+    """Merge defaults and clamp numeric fields."""
     notes: list[str] = []
     validated = merge_search_profile(profile, defaults=defaults)
-
-    gate_map = (
-        (USE_CONTEXTUAL_KEY, allow_contextual),
-        (USE_SMALL_TO_BIG_KEY, allow_small_to_big),
-        (USE_HYDE_KEY, allow_hyde),
-        (USE_RERANKER_KEY, allow_reranker),
-    )
-    for key, allowed in gate_map:
-        if validated.get(key) and not allowed:
-            validated[key] = False  # type: ignore[literal-required]
-            notes.append(f"{key} is disabled in this deployment; ran without it.")
 
     recall = validated.get(RECALL_N_KEY, defaults.get(RECALL_N_KEY, 1))
     if recall < 1:
@@ -180,26 +165,9 @@ def normalize_index_profile(
     profile: RagIndexProfile | None,
     *,
     defaults: RagIndexProfile,
-    allow_token_chunker: bool,
-    allow_contextual: bool,
-    allow_small_to_big: bool,
-    allow_predict_questions: bool,
 ) -> tuple[RagIndexProfile, list[str]]:
-    notes: list[str] = []
-    validated = merge_index_profile(profile, defaults=defaults)
-
-    gate_map = (
-        (USE_TOKEN_CHUNKER_KEY, allow_token_chunker),
-        (USE_CONTEXTUAL_KEY, allow_contextual),
-        (USE_SMALL_TO_BIG_KEY, allow_small_to_big),
-        (USE_PREDICT_QUESTIONS_KEY, allow_predict_questions),
-    )
-    for key, allowed in gate_map:
-        if validated.get(key) and not allowed:
-            validated[key] = False  # type: ignore[literal-required]
-            notes.append(f"{key} is disabled in this deployment; ran without it.")
-
-    return validated, notes
+    """Merge index defaults with tool-call overrides."""
+    return merge_index_profile(profile, defaults=defaults), []
 
 
 def search_profile_from_optional_args(

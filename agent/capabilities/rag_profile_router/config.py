@@ -16,10 +16,6 @@ class RagProfileRouterConfig:
 
     retrieve_profile_id: str = DEFAULT_RETRIEVE_PROFILE_ID
     default_profile: RagProfile | None = None
-    allow_contextual: bool = True
-    allow_small_to_big: bool = True
-    allow_hyde: bool = True
-    allow_reranker: bool = True
     max_recall_n: int | None = None
     max_top_k: int | None = None
 
