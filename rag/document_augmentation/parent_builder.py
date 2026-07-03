@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional, Sequence, Set, Tuple, cast
 
-from ..base import AnchorWindow, Chunk, ChunkMeta
+from ..base import AnchorWindow, BaseContextualEnricher, Chunk, ChunkMeta
 from ..chunker.semantic_chunker import _approx_token_len
 
 # --- metadata keys（写入 Qdrant payload，query 时读取）---
@@ -194,6 +194,26 @@ def assign_parent_chunks(
         chunk.metadata = meta
 
     return small_chunks
+
+
+class ParentChunkEnricher(BaseContextualEnricher):
+    """Index-time small-to-big: stable chunk_id + anchor_window on each small chunk."""
+
+    def __init__(self, *, parent_token_budget: int = 3072) -> None:
+        self.parent_token_budget = parent_token_budget
+
+    async def aenrich_for_index(
+        self, chunks: List[Chunk], *, source: str = ""
+    ) -> List[Chunk]:
+        return assign_parent_chunks(
+            chunks,
+            parent_token_budget=self.parent_token_budget,
+        )
+
+    async def aenrich_chunks(self, chunks: List[Chunk]) -> List[Chunk]:
+        # Query-time parent expansion lives in SmallToBigRetriever.
+        return list(chunks)
+
 
 # ==============================================================================
 # 查询阶段：以 hit 为中心物化 parent

@@ -16,16 +16,25 @@ import yaml
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_CONFIG_PATH = _REPO_ROOT / "arg_config.yaml"
 
-_PROFILE_BOOL_FIELDS = (
+_INDEX_BOOL_FIELDS = (
     "use_token_chunker",
     "use_contextual",
     "use_small_to_big",
     "use_predict_questions",
+)
+
+_RETRIEVE_BOOL_FIELDS = (
+    "use_contextual",
+    "use_small_to_big",
     "use_hyde",
     "use_reranker",
 )
 
-DEFAULT_PROFILE_ID = "baseline"
+DEFAULT_INDEX_PROFILE_ID = "baseline"
+DEFAULT_RETRIEVE_PROFILE_ID = "rerank_contextual"
+
+# Back-compat alias for callers not yet migrated.
+DEFAULT_PROFILE_ID = DEFAULT_INDEX_PROFILE_ID
 
 
 @dataclass(frozen=True)
@@ -47,13 +56,21 @@ class RetrieverConfig:
 
 
 @dataclass(frozen=True)
-class ProfileConfig:
-    """Typed view of one ``profiles.<id>`` entry."""
+class IndexProfileConfig:
+    """Typed view of one ``index_profiles.<id>`` entry."""
 
     use_token_chunker: bool
     use_contextual: bool
     use_small_to_big: bool
     use_predict_questions: bool
+
+
+@dataclass(frozen=True)
+class RetrieveProfileConfig:
+    """Typed view of one ``retrieve_profiles.<id>`` entry."""
+
+    use_contextual: bool
+    use_small_to_big: bool
     use_hyde: bool
     use_reranker: bool
 
@@ -62,7 +79,8 @@ class ProfileConfig:
 class RagConfig:
     chunker: ChunkerConfig
     retriever: RetrieverConfig
-    profiles: Dict[str, ProfileConfig]
+    index_profiles: Dict[str, IndexProfileConfig]
+    retrieve_profiles: Dict[str, RetrieveProfileConfig]
 
 
 def _config_section(data: object, name: str) -> dict[str, object]:
@@ -82,10 +100,17 @@ def _config_value(section: dict[str, object], section_name: str, key: str) -> ob
     return section[key]
 
 
-def _parse_profile(raw: object) -> ProfileConfig:
+def _parse_index_profile(raw: object) -> IndexProfileConfig:
     data = raw if isinstance(raw, dict) else {}
-    return ProfileConfig(
-        **{key: bool(data.get(key, False)) for key in _PROFILE_BOOL_FIELDS}
+    return IndexProfileConfig(
+        **{key: bool(data.get(key, False)) for key in _INDEX_BOOL_FIELDS}
+    )
+
+
+def _parse_retrieve_profile(raw: object) -> RetrieveProfileConfig:
+    data = raw if isinstance(raw, dict) else {}
+    return RetrieveProfileConfig(
+        **{key: bool(data.get(key, False)) for key in _RETRIEVE_BOOL_FIELDS}
     )
 
 
@@ -97,7 +122,8 @@ def load_rag_config(config_path: Path) -> RagConfig:
 
     chunker_raw = _config_section(data, "chunker")
     retriever_raw = _config_section(data, "retriever")
-    profiles_raw = _config_section(data, "profiles")
+    index_profiles_raw = _config_section(data, "index_profiles")
+    retrieve_profiles_raw = _config_section(data, "retrieve_profiles")
 
     chunker = ChunkerConfig(
         chunk_tokens=int(_config_value(chunker_raw, "chunker", "chunk_tokens")),
@@ -113,11 +139,20 @@ def load_rag_config(config_path: Path) -> RagConfig:
         recall_n=int(_config_value(retriever_raw, "retriever", "recall_n")),
         top_k=int(_config_value(retriever_raw, "retriever", "top_k")),
     )
-    profiles = {
-        profile_id: _parse_profile(cfg)
-        for profile_id, cfg in profiles_raw.items()
+    index_profiles = {
+        profile_id: _parse_index_profile(cfg)
+        for profile_id, cfg in index_profiles_raw.items()
     }
-    return RagConfig(chunker=chunker, retriever=retriever, profiles=profiles)
+    retrieve_profiles = {
+        profile_id: _parse_retrieve_profile(cfg)
+        for profile_id, cfg in retrieve_profiles_raw.items()
+    }
+    return RagConfig(
+        chunker=chunker,
+        retriever=retriever,
+        index_profiles=index_profiles,
+        retrieve_profiles=retrieve_profiles,
+    )
 
 
 def get_rag_config(config_path: Path | None = None) -> RagConfig:
@@ -125,16 +160,30 @@ def get_rag_config(config_path: Path | None = None) -> RagConfig:
     return load_rag_config(path)
 
 
-def get_profile(
+def get_index_profile(
     config: RagConfig,
-    profile_id: str = DEFAULT_PROFILE_ID,
-) -> ProfileConfig:
-    """Return one named profile from a loaded :class:`RagConfig`."""
+    profile_id: str = DEFAULT_INDEX_PROFILE_ID,
+) -> IndexProfileConfig:
+    """Return one named index profile from a loaded :class:`RagConfig`."""
     try:
-        return config.profiles[profile_id]
+        return config.index_profiles[profile_id]
     except KeyError as exc:
-        known = ", ".join(sorted(config.profiles))
-        raise KeyError(f"Unknown profile {profile_id!r}; known: {known}") from exc
+        known = ", ".join(sorted(config.index_profiles))
+        raise KeyError(f"Unknown index profile {profile_id!r}; known: {known}") from exc
+
+
+def get_retrieve_profile(
+    config: RagConfig,
+    profile_id: str = DEFAULT_RETRIEVE_PROFILE_ID,
+) -> RetrieveProfileConfig:
+    """Return one named retrieve profile from a loaded :class:`RagConfig`."""
+    try:
+        return config.retrieve_profiles[profile_id]
+    except KeyError as exc:
+        known = ", ".join(sorted(config.retrieve_profiles))
+        raise KeyError(
+            f"Unknown retrieve profile {profile_id!r}; known: {known}"
+        ) from exc
 
 
 if __name__ == "__main__":
@@ -151,10 +200,16 @@ if __name__ == "__main__":
         print("\n=== retriever ===")
         print(f"  recall_n={cfg.retriever.recall_n}")
         print(f"  top_k={cfg.retriever.top_k}")
-        print("\n=== profiles ===")
-        for pid, profile in sorted(cfg.profiles.items()):
+        print("\n=== index_profiles ===")
+        for pid, profile in sorted(cfg.index_profiles.items()):
             flags = ", ".join(
-                key for key in _PROFILE_BOOL_FIELDS if getattr(profile, key)
+                key for key in _INDEX_BOOL_FIELDS if getattr(profile, key)
+            )
+            print(f"  {pid}: {flags or '(all false)'}")
+        print("\n=== retrieve_profiles ===")
+        for pid, profile in sorted(cfg.retrieve_profiles.items()):
+            flags = ", ".join(
+                key for key in _RETRIEVE_BOOL_FIELDS if getattr(profile, key)
             )
             print(f"  {pid}: {flags or '(all false)'}")
 

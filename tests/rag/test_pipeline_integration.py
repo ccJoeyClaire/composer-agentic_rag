@@ -7,6 +7,7 @@ import pytest
 from rag.chunker.semantic_chunker import SemanticChunker
 from rag.core import RAGIndexer, RAGRetriever
 from rag.document_augmentation.context_enricher import ContextualEnricher
+from rag.document_augmentation.parent_builder import ParentChunkEnricher
 from rag.retriever.vector_retriever import VectorRetriever
 
 pytestmark = pytest.mark.integration
@@ -25,8 +26,10 @@ async def test_indexer_stores_chunks(
         ),
         embedder=mock_embedder,
         store=in_memory_qdrant_store,
-        contextual_enricher=ContextualEnricher(),
-        small_to_big_parent_tokens=256,
+        contextual_enrichers=[
+            ParentChunkEnricher(parent_token_budget=256),
+            ContextualEnricher(),
+        ],
     )
     text = "# Doc\n\nRAG pipeline indexes markdown for retrieval."
     ok = await indexer.aindex(text, source="doc.md")

@@ -19,6 +19,7 @@ DEFAULT_PASS_THRESHOLD = 0.5
 
 
 DEFAULT_MAX_SCORING_RETRIES = 2
+DEFAULT_MAX_BLOCKED_TURNS = 5
 
 
 @dataclass
@@ -29,3 +30,4 @@ class RetrievalGateConfig:
     rerank_client: DashScopeRerankClient | None = None
     pass_threshold: float = DEFAULT_PASS_THRESHOLD
     max_scoring_retries: int = DEFAULT_MAX_SCORING_RETRIES
+    max_blocked_turns: int = DEFAULT_MAX_BLOCKED_TURNS

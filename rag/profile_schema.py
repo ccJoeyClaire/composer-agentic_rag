@@ -8,7 +8,15 @@ from __future__ import annotations
 
 from typing import NotRequired, TypedDict
 
-from rag.config import DEFAULT_PROFILE_ID, ProfileConfig, get_profile, get_rag_config
+from rag.config import (
+    DEFAULT_INDEX_PROFILE_ID,
+    DEFAULT_RETRIEVE_PROFILE_ID,
+    IndexProfileConfig,
+    RetrieveProfileConfig,
+    get_index_profile,
+    get_rag_config,
+    get_retrieve_profile,
+)
 
 USE_TOKEN_CHUNKER_KEY = "use_token_chunker"
 USE_CONTEXTUAL_KEY = "use_contextual"
@@ -59,7 +67,9 @@ class RagSearchProfile(TypedDict, total=False):
     top_k: int
 
 
-def _search_bools_from_profile(profile: ProfileConfig) -> RagSearchProfile:
+def _search_bools_from_retrieve_profile(
+    profile: RetrieveProfileConfig,
+) -> RagSearchProfile:
     return {
         USE_CONTEXTUAL_KEY: profile.use_contextual,
         USE_SMALL_TO_BIG_KEY: profile.use_small_to_big,
@@ -68,7 +78,7 @@ def _search_bools_from_profile(profile: ProfileConfig) -> RagSearchProfile:
     }
 
 
-def _index_bools_from_profile(profile: ProfileConfig) -> RagIndexProfile:
+def _index_bools_from_index_profile(profile: IndexProfileConfig) -> RagIndexProfile:
     return {
         USE_TOKEN_CHUNKER_KEY: profile.use_token_chunker,
         USE_CONTEXTUAL_KEY: profile.use_contextual,
@@ -77,19 +87,25 @@ def _index_bools_from_profile(profile: ProfileConfig) -> RagIndexProfile:
     }
 
 
-def default_search_profile(profile_id: str = DEFAULT_PROFILE_ID) -> RagSearchProfile:
-    """Bool defaults from ``profiles.<id>``; ``recall_n`` / ``top_k`` from retriever config."""
-    yaml_profile = get_profile(get_rag_config(), profile_id)
+def default_search_profile(
+    retrieve_profile_id: str = DEFAULT_RETRIEVE_PROFILE_ID,
+) -> RagSearchProfile:
+    """Bool defaults from ``retrieve_profiles.<id>``; nums from retriever config."""
+    yaml_profile = get_retrieve_profile(get_rag_config(), retrieve_profile_id)
     retriever_cfg = get_rag_config().retriever
-    merged: RagSearchProfile = _search_bools_from_profile(yaml_profile)
+    merged: RagSearchProfile = _search_bools_from_retrieve_profile(yaml_profile)
     merged[RECALL_N_KEY] = retriever_cfg.recall_n
     merged[TOP_K_KEY] = retriever_cfg.top_k
     return merged
 
 
-def default_index_profile(profile_id: str = DEFAULT_PROFILE_ID) -> RagIndexProfile:
-    """Bool defaults from ``profiles.<id>``."""
-    return _index_bools_from_profile(get_profile(get_rag_config(), profile_id))
+def default_index_profile(
+    index_profile_id: str = DEFAULT_INDEX_PROFILE_ID,
+) -> RagIndexProfile:
+    """Bool defaults from ``index_profiles.<id>``."""
+    return _index_bools_from_index_profile(
+        get_index_profile(get_rag_config(), index_profile_id)
+    )
 
 
 def merge_search_profile(
@@ -119,27 +135,12 @@ def normalize_search_profile(
     profile: RagSearchProfile | None,
     *,
     defaults: RagSearchProfile,
-    allow_contextual: bool,
-    allow_small_to_big: bool,
-    allow_hyde: bool,
-    allow_reranker: bool,
     max_recall_n: int,
     max_top_k: int | None = None,
 ) -> tuple[RagSearchProfile, list[str]]:
-    """Merge defaults, apply deployment gates, and clamp numeric fields."""
+    """Merge defaults and clamp numeric fields."""
     notes: list[str] = []
     validated = merge_search_profile(profile, defaults=defaults)
-
-    gate_map = (
-        (USE_CONTEXTUAL_KEY, allow_contextual),
-        (USE_SMALL_TO_BIG_KEY, allow_small_to_big),
-        (USE_HYDE_KEY, allow_hyde),
-        (USE_RERANKER_KEY, allow_reranker),
-    )
-    for key, allowed in gate_map:
-        if validated.get(key) and not allowed:
-            validated[key] = False  # type: ignore[literal-required]
-            notes.append(f"{key} is disabled in this deployment; ran without it.")
 
     recall = validated.get(RECALL_N_KEY, defaults.get(RECALL_N_KEY, 1))
     if recall < 1:
@@ -164,26 +165,9 @@ def normalize_index_profile(
     profile: RagIndexProfile | None,
     *,
     defaults: RagIndexProfile,
-    allow_token_chunker: bool,
-    allow_contextual: bool,
-    allow_small_to_big: bool,
-    allow_predict_questions: bool,
 ) -> tuple[RagIndexProfile, list[str]]:
-    notes: list[str] = []
-    validated = merge_index_profile(profile, defaults=defaults)
-
-    gate_map = (
-        (USE_TOKEN_CHUNKER_KEY, allow_token_chunker),
-        (USE_CONTEXTUAL_KEY, allow_contextual),
-        (USE_SMALL_TO_BIG_KEY, allow_small_to_big),
-        (USE_PREDICT_QUESTIONS_KEY, allow_predict_questions),
-    )
-    for key, allowed in gate_map:
-        if validated.get(key) and not allowed:
-            validated[key] = False  # type: ignore[literal-required]
-            notes.append(f"{key} is disabled in this deployment; ran without it.")
-
-    return validated, notes
+    """Merge index defaults with tool-call overrides."""
+    return merge_index_profile(profile, defaults=defaults), []
 
 
 def search_profile_from_optional_args(

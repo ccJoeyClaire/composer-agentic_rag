@@ -23,5 +23,6 @@ class RetrievalGateCapability:
                 retrieval_gate_node,
                 capability_config=capability_config,
                 rag_tool_name=config.rag_tool_name,
+                web_tool_name=config.web_tool_name,
             ),
         )

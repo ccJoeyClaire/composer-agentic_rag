@@ -28,6 +28,11 @@ class LLMClient:
         self.client = OpenAI(**client_kwargs)
         self.async_client = AsyncOpenAI(**client_kwargs)
 
+    async def aclose(self) -> None:
+        """Release httpx pools used by the async OpenAI client."""
+        await self.async_client.close()
+        self.client.close()
+
     def _build_create_kwargs(
         self,
         messages: List[Dict],

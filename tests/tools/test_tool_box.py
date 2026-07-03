@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from tools.registry import discover_packages, get_decorated_tools
+from tools.registry import discover_packages, get_registered_tools
 from tools.tool_box import ToolBox
 
 
@@ -45,7 +45,7 @@ def test_list_tools_schema(tool_box):
 
 def test_local_tool_decorator_sets_metadata():
     discover_packages("tools.LocalTool.math_tool")
-    info = get_decorated_tools()["integrate_function"]
+    info = get_registered_tools()["integrate_function"]
     assert info.source == "local"
     assert info.tool_path == "tools.LocalTool.math_tool.integrate_function"
 

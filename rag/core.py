@@ -20,7 +20,6 @@ from .base import (
     RagContext,
     RagResult,
 )
-from .document_augmentation.parent_builder import assign_parent_chunks
 from .config import get_rag_config
 
 
@@ -37,16 +36,14 @@ class RAGIndexer:
         embedder: BaseEmbedder,
         store: BaseVectorStore,
         *,
-        contextual_enricher: Optional[BaseContextualEnricher] = None,
+        contextual_enrichers: list[BaseContextualEnricher] | None = None,
         predict_question_enricher: Optional[BaseContextualEnricher] = None,
-        small_to_big_parent_tokens: Optional[int] = None,
     ):
         self.chunker = chunker
         self.embedder = embedder
         self.store = store
-        self.contextual_enricher = contextual_enricher
+        self.contextual_enrichers = list(contextual_enrichers or [])
         self.predict_question_enricher = predict_question_enricher
-        self.small_to_big_parent_tokens = small_to_big_parent_tokens
 
     async def aindex(self, text: str, source: str = "", *, doc_id: str = "") -> bool:
         chunks = self.chunker.run(text)
@@ -56,16 +53,8 @@ class RAGIndexer:
             if doc_id:
                 c.metadata["doc_id"] = doc_id
 
-        if self.small_to_big_parent_tokens:
-            chunks = assign_parent_chunks(
-                chunks,
-                parent_token_budget=self.small_to_big_parent_tokens,
-            )
-
-        if self.contextual_enricher:
-            chunks = await self.contextual_enricher.aenrich_for_index(
-                chunks, source=source
-            )
+        for enricher in self.contextual_enrichers:
+            chunks = await enricher.aenrich_for_index(chunks, source=source)
 
         if self.predict_question_enricher:
             chunks = await self.predict_question_enricher.aenrich_for_index(

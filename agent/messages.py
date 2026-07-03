@@ -22,7 +22,9 @@ from rag.serialize import (
 )
 
 RAG_CONTEXT_TOP_K_MULTIPLIER = 3
-MERGED_RAG_STUB = "(retrieval context consolidated in the latest RAG result below)"
+RAG_CONTEXT_MAX_CALLS_DEFAULT = 3
+OMITTED_RAG_STUB = "(earlier RAG retrieval omitted from LLM context)"
+MERGED_RAG_STUB = OMITTED_RAG_STUB
 
 
 def resolve_rag_context_max_chunks(configured: int | None) -> int:
@@ -44,19 +46,18 @@ def prune_rag_chunks(
     *,
     max_chunks: int,
 ) -> list[ToolChunkRecord]:
-    """Deduplicate by ``chunk_id`` (or content) and keep top *max_chunks* by score."""
-    best_by_key: dict[str, ToolChunkRecord] = {}
+    """Keep the first *max_chunks* unique chunks in retrieval order."""
+    seen: set[str] = set()
+    kept: list[ToolChunkRecord] = []
     for chunk in chunks:
         key = _chunk_dedupe_key(chunk)
-        existing = best_by_key.get(key)
-        if existing is None or chunk.get("score", 0.0) > existing.get("score", 0.0):
-            best_by_key[key] = chunk
-    ranked = sorted(
-        best_by_key.values(),
-        key=lambda item: item.get("score", 0.0),
-        reverse=True,
-    )
-    return ranked[:max_chunks]
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(chunk)
+        if len(kept) >= max_chunks:
+            break
+    return kept
 
 
 def _format_chunk_header(chunk: ToolChunkRecord) -> str:
@@ -113,44 +114,60 @@ def prepare_rag_context_for_llm(
     *,
     rag_tool_name: str,
     max_chunks: int,
-) -> list[BaseMessage]:
-    """Return a message copy with merged, score-pruned RAG context for the LLM.
+    max_calls: int = RAG_CONTEXT_MAX_CALLS_DEFAULT,
+) -> tuple[list[BaseMessage], list[ToolChunkRecord]]:
+    """Return LLM view and RAG chunks shown to the model.
 
-    ``AgentState`` is unchanged; only the view passed to the LLM is rewritten.
+    Keeps the newest *max_calls* RAG tool results as-is; stubs older rounds.
+    If the window still exceeds *max_chunks*, drops the earliest kept round;
+    a single overflowing round is truncated in retrieval order.
+
+    The returned message list is a copy; *messages* in ``AgentState`` are unchanged.
     """
     call_names = _tool_call_names(messages)
-    rag_indices: list[int] = []
-    all_chunks: list[ToolChunkRecord] = []
-
-    for index, message in enumerate(messages):
-        if not isinstance(message, ToolMessage):
-            continue
-        if call_names.get(message.tool_call_id) != rag_tool_name:
-            continue
-        rag_indices.append(index)
-        all_chunks.extend(parse_tool_chunks(str(message.content or "")))
-
+    rag_indices = [
+        index
+        for index, message in enumerate(messages)
+        if isinstance(message, ToolMessage)
+        and call_names.get(message.tool_call_id) == rag_tool_name
+    ]
     if not rag_indices:
-        return list(messages)
+        return list(messages), []
 
-    pruned = prune_rag_chunks(all_chunks, max_chunks=max_chunks)
-    formatted = format_rag_chunks_for_llm(pruned)
-    last_index = rag_indices[-1]
-    _, notes_suffix = split_tool_body_and_notes(
-        str(messages[last_index].content or "")
-    )
+    def _chunks_at(index: int) -> list[ToolChunkRecord]:
+        return parse_tool_chunks(str(messages[index].content or ""))
 
-    result: list[BaseMessage] = list(messages)
-    for index in rag_indices[:-1]:
+    kept = rag_indices[-max(1, max_calls) :]
+    while len(kept) > 1 and sum(len(_chunks_at(i)) for i in kept) > max_chunks:
+        kept = kept[1:]
+    kept_set = set(kept)
+
+    result = list(messages)
+    retrieved: list[ToolChunkRecord] = []
+    budget = max_chunks
+
+    for index in rag_indices:
         message = result[index]
         assert isinstance(message, ToolMessage)
-        result[index] = message.model_copy(update={"content": MERGED_RAG_STUB})
+        if index not in kept_set:
+            result[index] = message.model_copy(update={"content": OMITTED_RAG_STUB})
+            continue
 
-    last_message = result[last_index]
-    assert isinstance(last_message, ToolMessage)
-    last_content = formatted + notes_suffix if formatted else notes_suffix
-    result[last_index] = last_message.model_copy(update={"content": last_content})
-    return result
+        raw = str(messages[index].content or "")
+        chunks = _chunks_at(index)
+        if len(chunks) > budget:
+            chunks = prune_rag_chunks(chunks, max_chunks=budget)
+            body, notes = split_tool_body_and_notes(raw)
+            content = (
+                json.dumps(chunks, ensure_ascii=False) + notes
+                if body.strip().startswith("[")
+                else format_rag_chunks_for_llm(chunks) + notes
+            )
+            result[index] = message.model_copy(update={"content": content})
+        retrieved.extend(chunks)
+        budget -= len(chunks)
+
+    return result, retrieved
 
 
 def messages_to_openai(messages: List[Union[BaseMessage, dict]]) -> List[dict]:

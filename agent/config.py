@@ -7,11 +7,7 @@ from dataclasses import dataclass
 from agent.capabilities.human_feedback.config import HumanFeedbackConfig
 from agent.capabilities.rag_profile_router.config import RagProfileRouterConfig
 from agent.capabilities.retrieval_gate.config import RetrievalGateConfig
-from agent.core.constants import (
-    DEFAULT_MAX_RAG_ATTEMPTS,
-    DEFAULT_RAG_TOOL_NAME,
-    DEFAULT_WEB_TOOL_NAME,
-)
+from agent.core.tool_box import DEFAULT_RAG_TOOL_NAME, DEFAULT_WEB_TOOL_NAME
 from agent.prompt.load import default_system_prompt_key
 from llm.client import LLMClient
 from tools.tool_box import ToolBox
@@ -39,7 +35,6 @@ class AgentConfig:
     # Shared tool names
     rag_tool_name: str = DEFAULT_RAG_TOOL_NAME
     web_tool_name: str = DEFAULT_WEB_TOOL_NAME
-    max_rag_attempts: int = DEFAULT_MAX_RAG_ATTEMPTS
     rag_context_max_chunks: int | None = None
 
     # Per-capability config (optional overrides)

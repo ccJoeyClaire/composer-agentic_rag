@@ -14,7 +14,7 @@ from agent.config import AgentConfig
 from agent.core.edges.after_llm import route_after_llm
 from agent.core.edges.after_tools import route_after_tools
 from agent.core.edges.names import NodeName
-from agent.core.constants import DEFAULT_RAG_TOOL_NAME
+from agent.core.tool_box import DEFAULT_RAG_TOOL_NAME
 from agent.core.state import AgentState
 
 pytestmark = pytest.mark.unit

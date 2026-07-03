@@ -1,5 +1,6 @@
 from .context_enricher import ContextualEnricher, build_contextual_header, build_embed_text
 from .parent_builder import (
+    ParentChunkEnricher,
     assign_parent_chunks,
     get_anchor_window,
     merge_windows,
@@ -15,6 +16,7 @@ __all__ = [
     "ContextualEnricher",
     "build_contextual_header",
     "build_embed_text",
+    "ParentChunkEnricher",
     "assign_parent_chunks",
     "get_anchor_window",
     "merge_windows",

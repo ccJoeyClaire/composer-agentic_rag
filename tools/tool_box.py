@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import importlib
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List
@@ -8,7 +9,8 @@ from typing import Any, Callable, Dict, List
 from langchain_core.tools import BaseTool, StructuredTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
-from tools.registry import DEFAULT_TOOL_PACKAGES, ToolInfo, discover_packages, get_decorated_tools
+from tools.context import INJECTED_CONTEXT_PARAM, ToolContextBundle
+from tools.registry import DEFAULT_TOOL_PACKAGES, ToolInfo, discover_packages, get_registered_tools
 
 
 @dataclass
@@ -27,21 +29,27 @@ class ToolBox:
     def __init__(
         self,
         *,
+        context: ToolContextBundle | None = None,
         autodiscover: bool = True,
         packages: tuple[str, ...] | None = None,
     ) -> None:
+        self._context = context or ToolContextBundle()
         self._packages = packages or DEFAULT_TOOL_PACKAGES
         self._registry: Dict[str, ToolInfo] = {}
         self._cache: Dict[str, Callable[..., Any]] = {}
         if autodiscover:
-            self._load_decorated_tools()
+            self._load_registered_tools()
 
-    def _load_decorated_tools(self) -> None:
+    @property
+    def context(self) -> ToolContextBundle:
+        return self._context
+
+    def _load_registered_tools(self) -> None:
         discover_packages(*self._packages)
         prefixes = tuple(f"{package}." for package in self._packages)
         self._registry = {
             name: info
-            for name, info in get_decorated_tools().items()
+            for name, info in get_registered_tools().items()
             if info.tool_path.startswith(prefixes)
         }
 
@@ -77,16 +85,31 @@ class ToolBox:
             kwargs["description"] = description
         return StructuredTool.from_function(func, **kwargs)
 
+    def _strip_injected_params(self, schema: Dict[str, Any]) -> Dict[str, Any]:
+        props = schema.get("function", {}).get("parameters", {}).get("properties")
+        if not props or INJECTED_CONTEXT_PARAM not in props:
+            return schema
+
+        filtered = copy.deepcopy(schema)
+        params = filtered["function"]["parameters"]
+        params["properties"] = {
+            key: value
+            for key, value in params["properties"].items()
+            if key != INJECTED_CONTEXT_PARAM
+        }
+        required = params.get("required") or []
+        params["required"] = [key for key in required if key != INJECTED_CONTEXT_PARAM]
+        return filtered
+
     def list_tools(self) -> List[Dict[str, Any]]:
         schemas: List[Dict[str, Any]] = []
         for name, info in self._registry.items():
             func = self.resolve(info.tool_path)
             description = self._description_for(info, func)
-            schemas.append(
-                convert_to_openai_tool(
-                    self._wrap_as_lc_tool(func, name, description)
-                )
+            schema = convert_to_openai_tool(
+                self._wrap_as_lc_tool(func, name, description)
             )
+            schemas.append(self._strip_injected_params(schema))
         return schemas
 
     async def ainvoke(self, name: str, args: Dict[str, Any]) -> ToolResult:
@@ -96,6 +119,15 @@ class ToolBox:
                 name=name,
                 args=args,
                 error=f"未找到工具 {name}",
+            )
+
+        missing = [key for key in info.context_keys if not self._context.has(key)]
+        if missing:
+            return ToolResult(
+                name=name,
+                args=args,
+                error=f"Missing tool context: {', '.join(missing)}",
+                source=info.source,
             )
 
         try:
@@ -108,11 +140,15 @@ class ToolBox:
                 source=info.source,
             )
 
+        invoke_args = dict(args)
+        if info.context_keys:
+            invoke_args[INJECTED_CONTEXT_PARAM] = self._context.view(info.context_keys)
+
         try:
             if asyncio.iscoroutinefunction(func):
-                output = await func(**args)
+                output = await func(**invoke_args)
             else:
-                output = func(**args)
+                output = func(**invoke_args)
             return ToolResult(
                 name=name,
                 args=args,
@@ -126,6 +162,9 @@ class ToolBox:
                 error=str(e),
                 source=info.source,
             )
+
+    async def aclose(self) -> None:
+        await self._context.aclose()
 
 
 def _main() -> None:

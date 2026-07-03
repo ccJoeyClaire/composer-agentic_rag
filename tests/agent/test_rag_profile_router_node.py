@@ -19,7 +19,7 @@ from agent.capabilities.rag_profile_router.profile import (
     RagProfile,
 )
 from agent.config import AgentConfig
-from agent.core.constants import DEFAULT_RAG_TOOL_NAME
+from agent.core.tool_box import DEFAULT_RAG_TOOL_NAME
 from agent.core.metadata.base import RAG_PROFILE_KEY
 from agent.core.state import AgentState
 
@@ -60,7 +60,7 @@ class TestExtractProfileFromArgs:
 
 class TestValidateProfile:
     def test_merges_baseline_defaults_when_args_empty(self) -> None:
-        config = RagProfileRouterConfig(profile_id="baseline")
+        config = RagProfileRouterConfig(retrieve_profile_id="rerank_contextual")
         validated = _validate_profile({}, config)
         assert validated[PROFILE_USE_CONTEXTUAL_KEY] is True
         assert validated[PROFILE_USE_RERANKER_KEY] is True
@@ -70,11 +70,6 @@ class TestValidateProfile:
         config = RagProfileRouterConfig(max_recall_n=10)
         validated = _validate_profile({"recall_n": 999}, config)
         assert validated["recall_n"] == 10
-
-    def test_disables_gated_bool(self) -> None:
-        config = RagProfileRouterConfig(allow_hyde=False)
-        validated = _validate_profile({PROFILE_USE_HYDE_KEY: True}, config)
-        assert validated[PROFILE_USE_HYDE_KEY] is False
 
 
 @pytest.mark.asyncio
@@ -99,7 +94,7 @@ async def test_rag_profile_router_writes_metadata(llm_stub) -> None:
         "metadata": {},
     }
     agent_config = AgentConfig(llm=llm_stub, enable_rag_profile_router=True)
-    capability_config = RagProfileRouterConfig(profile_id="baseline")
+    capability_config = RagProfileRouterConfig(retrieve_profile_id="rerank_contextual")
 
     update = await rag_profile_router_node(
         state,

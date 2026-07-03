@@ -3,23 +3,20 @@
 from __future__ import annotations
 
 from agent.capabilities.retrieval_gate.config import RetrievalGateConfig
+from agent.capabilities.retrieval_gate.evidence import extract_latest_evidence_batch
 from agent.capabilities.retrieval_gate.metadata import (
+    GATE_EVIDENCE_SOURCES_KEY,
     GATE_ISSUES_KEY,
     GATE_PASSAGES_SUMMARY_KEY,
     GATE_VERDICT_KEY,
-)
-from agent.capabilities.retrieval_gate.rag_context import (
-    extract_latest_rag_context,
-    split_rag_passages,
 )
 from agent.capabilities.retrieval_gate.score import build_dashscope_score_fn
 from agent.capabilities.retrieval_gate.verdict import (
     build_passages_summary,
     compute_gate_verdict,
 )
-from agent.core.constants import DEFAULT_RAG_TOOL_NAME
+from agent.core.tool_box import DEFAULT_RAG_TOOL_NAME, DEFAULT_WEB_TOOL_NAME
 from agent.core.state import AgentState, merge_metadata
-from agent.types import GateVerdict
 
 
 def _resolve_score_fn(config: RetrievalGateConfig):
@@ -33,31 +30,34 @@ async def retrieval_gate_node(
     *,
     capability_config: RetrievalGateConfig,
     rag_tool_name: str = DEFAULT_RAG_TOOL_NAME,
+    web_tool_name: str = DEFAULT_WEB_TOOL_NAME,
 ) -> dict[str, object]:
-    """Grade the latest RAG retrieval; LLM decides whether to retry or web-search."""
-    context = extract_latest_rag_context(
+    """Grade the latest RAG/web retrieval; LLM decides whether to retry or answer."""
+    batch = extract_latest_evidence_batch(
         state["messages"],
         rag_tool_name=rag_tool_name,
+        web_tool_name=web_tool_name,
     )
-    if context is None:
+    if batch is None:
         return merge_metadata(
             state,
             {
                 GATE_VERDICT_KEY: "empty",
-                GATE_ISSUES_KEY: ["no RAG tool result in the latest batch"],
+                GATE_ISSUES_KEY: ["no scorable tool result in the latest batch"],
                 GATE_PASSAGES_SUMMARY_KEY: None,
+                GATE_EVIDENCE_SOURCES_KEY: [],
             },
         )
 
-    query, raw = context
-    passages = split_rag_passages(raw)
+    passages = batch.passages
     if not passages:
         return merge_metadata(
             state,
             {
                 GATE_VERDICT_KEY: "empty",
-                GATE_ISSUES_KEY: ["RAG tool returned no passages"],
+                GATE_ISSUES_KEY: ["retrieval tools returned no passages"],
                 GATE_PASSAGES_SUMMARY_KEY: build_passages_summary([], []),
+                GATE_EVIDENCE_SOURCES_KEY: list(batch.sources),
             },
         )
 
@@ -67,7 +67,7 @@ async def retrieval_gate_node(
     issues: list[str] = []
 
     for _ in range(capability_config.max_scoring_retries):
-        scores = await score_fn(state, query, passages)
+        scores = await score_fn(state, batch.user_query, passages)
         verdict, issues = compute_gate_verdict(
             passages,
             scores,
@@ -82,6 +82,7 @@ async def retrieval_gate_node(
             GATE_VERDICT_KEY: verdict,
             GATE_ISSUES_KEY: issues,
             GATE_PASSAGES_SUMMARY_KEY: build_passages_summary(passages, scores),
+            GATE_EVIDENCE_SOURCES_KEY: list(batch.sources),
         },
     )
     if verdict == "error":

@@ -1,7 +1,0 @@
-{
-  "dataset_id": "hotpotqa",
-  "adapter": "beir_corpus",
-  "corpus": "hotpotqa/corpus.jsonl",
-  "queries": "hotpotqa/queries.jsonl",
-  "qrels": "hotpotqa/qrels/test.tsv"
-}

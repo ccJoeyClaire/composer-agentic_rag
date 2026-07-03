@@ -13,7 +13,7 @@ from typing import Annotated, Optional
 
 from pydantic import Field
 
-from .base import BaseChunker, RagResult
+from .base import BaseChunker, BaseContextualEnricher, RagResult
 from .config import get_rag_config
 from .core import RAGIndexer, RAGRetriever
 from .embedder.openai_embedder import OpenAIEmbedder
@@ -104,6 +104,7 @@ def build_RAG_indexer(
 ) -> RAGIndexer:
     """组装离线建库用的 :class:`RAGIndexer`（chunk → embed → store）。"""
     from .document_augmentation.context_enricher import ContextualEnricher
+    from .document_augmentation.parent_builder import ParentChunkEnricher
     from .document_augmentation.predict_question import PredictQuestionEnricher
 
     chunker_cfg = get_rag_config().chunker
@@ -115,7 +116,16 @@ def build_RAG_indexer(
     embedder = _make_embedder(embedder)
     store = _make_store(collection, in_memory=in_memory, store=store)
 
-    contextual_enricher = ContextualEnricher() if use_contextual else None
+    contextual_enrichers: list[BaseContextualEnricher] = []
+    if use_small_to_big:
+        contextual_enrichers.append(
+            ParentChunkEnricher(
+                parent_token_budget=parent_window_tokens(resolved_chunk_tokens)
+            )
+        )
+    if use_contextual:
+        contextual_enrichers.append(ContextualEnricher())
+
     predict_kwargs: dict = {}
     if predict_question_max_concurrency is not None:
         predict_kwargs["max_concurrency"] = predict_question_max_concurrency
@@ -131,11 +141,8 @@ def build_RAG_indexer(
         ),
         embedder=embedder,
         store=store,
-        contextual_enricher=contextual_enricher,
+        contextual_enrichers=contextual_enrichers,
         predict_question_enricher=predict_question_enricher,
-        small_to_big_parent_tokens=(
-            parent_window_tokens(resolved_chunk_tokens) if use_small_to_big else None
-        ),
     )
 
 

@@ -17,7 +17,8 @@ from agent.pattern.config import (
     get_pattern,
 )
 from llm.client import LLMClient
-from rag.context import bind_rag_context
+from rag.context import bind_rag
+from tools.context import ToolContextBundle
 from tools.tool_box import ToolBox
 
 
@@ -27,9 +28,24 @@ class RequestConfig:
 
     pattern_id: str
     collection: str
-    profile_id: str
+    index_profile_id: str
+    retrieve_profile_id: str
     enable_web_search: bool = False
     config_path: Path | None = None
+
+
+@dataclass
+class AgentRun:
+    """Compiled graph plus owned clients for one smoke / eval invocation."""
+
+    graph: CompiledStateGraph
+    llm: LLMClient
+    tool_box: ToolBox
+
+    async def aclose(self) -> None:
+        """Release LLM httpx pools and tool deployment contexts."""
+        await self.llm.aclose()
+        await self.tool_box.aclose()
 
 
 def _agent_config_from_request(
@@ -47,22 +63,27 @@ def _agent_config_from_request(
         enable_retrieval_gate=pattern.enable_retrieval_gate,
         enable_human_feedback=pattern.enable_human_feedback,
         enable_web_search=request.enable_web_search,
-        rag_profile_router=RagProfileRouterConfig(profile_id=request.profile_id),
+        rag_profile_router=RagProfileRouterConfig(
+            retrieve_profile_id=request.retrieve_profile_id,
+        ),
         system_prompt_key=pattern.system_prompt_key,
         rag_context_max_chunks=rag_context.max_chunks,
     )
 
 
-def build_graph(request: RequestConfig) -> CompiledStateGraph:
-    """Bind RAG, assemble ``AgentConfig``, and return a compiled LangGraph."""
+def build_run(request: RequestConfig) -> AgentRun:
+    """Bind RAG, assemble ``AgentConfig``, and return graph + owned resources."""
     agent_patterns = get_agent_pattern_config(config_path=request.config_path)
     pattern = get_pattern(request.pattern_id, config_path=request.config_path)
-    bind_rag_context(
+    bundle = ToolContextBundle()
+    bind_rag(
+        bundle,
         collection=request.collection,
-        profile_id=request.profile_id,
+        index_profile_id=request.index_profile_id,
+        retrieve_profile_id=request.retrieve_profile_id,
     )
     llm = LLMClient()
-    tool_box = ToolBox()
+    tool_box = ToolBox(context=bundle)
     agent_config = _agent_config_from_request(
         request,
         pattern,
@@ -70,4 +91,9 @@ def build_graph(request: RequestConfig) -> CompiledStateGraph:
         llm=llm,
         tool_box=tool_box,
     )
-    return build_agent(agent_config)
+    return AgentRun(graph=build_agent(agent_config), llm=llm, tool_box=tool_box)
+
+
+def build_graph(request: RequestConfig) -> CompiledStateGraph:
+    """Bind RAG, assemble ``AgentConfig``, and return a compiled LangGraph."""
+    return build_run(request).graph

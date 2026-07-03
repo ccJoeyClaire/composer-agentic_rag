@@ -1,6 +1,6 @@
 """Agent reflection patterns — yaml config + graph bootstrap."""
 
-from agent.pattern.common import RequestConfig, build_graph
+from agent.pattern.common import AgentRun, RequestConfig, build_graph, build_run
 from agent.pattern.config import (
     AgentPatternConfig,
     PatternConfig,

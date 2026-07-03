@@ -19,7 +19,8 @@ def request_config() -> RequestConfig:
     return RequestConfig(
         pattern_id="self_rag",
         collection="demo_collection",
-        profile_id="baseline",
+        index_profile_id="baseline",
+        retrieve_profile_id="rerank_contextual",
         enable_web_search=False,
     )
 

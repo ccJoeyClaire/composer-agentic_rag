@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 
-from agent.core.constants import DEFAULT_RAG_TOOL_NAME, DEFAULT_WEB_TOOL_NAME
+from agent.core.tool_box import DEFAULT_RAG_TOOL_NAME, DEFAULT_WEB_TOOL_NAME
 from agent.core.state import AgentState
+
+if TYPE_CHECKING:
+    from agent.config import AgentConfig
 
 
 def last_ai_message(messages: list[BaseMessage]) -> AIMessage | None:
@@ -53,6 +56,32 @@ def has_rag_tool_call(
 ) -> bool:
     """True when the batch includes a RAG search tool call."""
     return has_tool_named(tool_calls, rag_tool_name)
+
+
+def has_web_tool_call(
+    tool_calls: list[dict[str, Any]],
+    *,
+    web_tool_name: str = DEFAULT_WEB_TOOL_NAME,
+) -> bool:
+    """True when the batch includes a web search tool call."""
+    return has_tool_named(tool_calls, web_tool_name)
+
+
+def last_batch_included_scorable_evidence(
+    state: AgentState,
+    *,
+    agent_config: AgentConfig,
+) -> bool:
+    """True when the latest tool batch returned RAG and/or web evidence to grade."""
+    calls = preceding_ai_tool_calls(state)
+    if has_rag_tool_call(calls, rag_tool_name=agent_config.rag_tool_name):
+        return True
+    if agent_config.enable_web_search and has_web_tool_call(
+        calls,
+        web_tool_name=agent_config.web_tool_name,
+    ):
+        return True
+    return False
 
 
 def last_batch_included_rag(
