@@ -53,19 +53,29 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    subgraph 注册
+    subgraph reg ["注册"]
         LT["@local_tool<br/>tools/LocalTool/"]
         MCP["@mcp_tool<br/>tools/MCPTool/"]
-        LT & MCP --> REG[registry<br/>ToolInfo 表]
-        REG --> TB[ToolBox<br/>autodiscover 扫描包]
+        LT & MCP --> REG["registry<br/>ToolInfo 表"]
     end
 
-    subgraph 与 LLM 协作
-        TB --> LIST[list_tools<br/>→ OpenAI function schema]
-        LIST --> LLM2[LLM 选择工具]
-        LLM2 -->|ToolCall name + args| INV[ainvoke<br/>resolve → 执行]
-        INV --> TM[ToolMessage<br/>写回 messages]
+    subgraph deploy ["部署绑定"]
+        CTX["ToolContextBundle<br/>bind_rag / bind..."]
     end
+
+    subgraph llm ["与 LLM 协作"]
+        LIST["list_tools<br/>strip _tool_context"]
+        LLM2["LLM 选择工具"]
+        INV["ainvoke<br/>注入 context → 执行"]
+        TM["ToolMessage<br/>写回 messages"]
+        LIST --> LLM2
+        LLM2 -->|ToolCall name + args| INV
+        INV --> TM
+    end
+
+    REG --> TB["ToolBox<br/>autodiscover 扫描包"]
+    CTX --> TB
+    TB --> LIST
 ```
 
 ### RAG 层（Index / Retrieve）
@@ -237,7 +247,7 @@ retriever = build_RAG_retriever(
 | **Capability** | `AgentConfig`（`agent/config.py`） | 运行时开关、工具名、各 capability 细项 |
 | **Pattern 预设** | `agent_arg_config.yaml` | 把常用 capability 组合命名（`self_rag`、`crag` 等），供 `get_start` / 评测复用 |
 
-RAG 部署（`collection`、`profile_id`）在运行时注入，见 `bind_rag_context` 或 `RequestConfig`。
+RAG 部署（`collection`、`profile_id`）在运行时注入：构造 `ToolBox` 前对 `ToolContextBundle` 调用 `bind_rag`，或使用 `RequestConfig` + `build_run`（见 [工具系统 → 部署 Context](#部署-context)）。
 
 ### Capability 开关（`AgentConfig`）
 
@@ -274,36 +284,54 @@ from langchain_core.messages import HumanMessage
 
 from agent import AgentConfig, build_agent
 from llm.client import LLMClient
-from rag.context import bind_rag_context
+from rag.context import bind_rag
+from tools.context import ToolContextBundle
 from tools.tool_box import ToolBox
 
-bind_rag_context(collection="my_collection", profile_id="baseline")
+bundle = ToolContextBundle()
+bind_rag(
+    bundle,
+    collection="my_collection",
+    index_profile_id="baseline",
+    retrieve_profile_id="baseline",
+)
+tool_box = ToolBox(context=bundle)
 
 graph = build_agent(
     AgentConfig(
         llm=LLMClient(),
-        tool_box=ToolBox(),
+        tool_box=tool_box,
         enable_retrieval_gate=True,
         enable_rag_profile_router=False,
         enable_web_search=False,
     )
 )
-result = await graph.ainvoke({"messages": [HumanMessage(content="…")], "metadata": {}})
+try:
+    result = await graph.ainvoke({"messages": [HumanMessage(content="…")], "metadata": {}})
+finally:
+    await tool_box.aclose()
 ```
 
 **方式 B — Pattern 预设（与 `get_start` 相同）**
 
 ```python
-from agent.pattern.common import RequestConfig, build_graph
+from agent.pattern.common import RequestConfig, build_run
 
-graph = build_graph(
+run = build_run(
     RequestConfig(
         pattern_id="crag",
         collection="getstart_codex_baseline",
-        profile_id="baseline",
+        index_profile_id="baseline",
+        retrieve_profile_id="rerank_contextual",
         enable_web_search=False,
     )
 )
+try:
+    result = await run.graph.ainvoke(
+        {"messages": [HumanMessage(content="…")], "metadata": {}}
+    )
+finally:
+    await run.aclose()
 ```
 
 可运行示例见 [快速开始 → Agent](#agentpattern-示例)。图结构见 [架构 → Agent 层](#agent-层langgraph)。
@@ -346,16 +374,32 @@ python -m tools.tool_box list
 
 1. LLM 返回带 `tool_calls` 的 `AIMessage`（`name` + `args` + `id`）
 2. `tools` 节点遍历每条 call，调用 `tool_box.ainvoke(name, args)`
-3. `ToolBox.ainvoke`：查注册表 → `resolve(tool_path)` 加载函数 → 执行（async 直接 `await`，sync 直接调用）
+3. `ToolBox.ainvoke`：查注册表 → 校验 `context_keys` 已 bind → 注入 `_tool_context` → `resolve(tool_path)` 加载函数 → 执行（async 直接 `await`，sync 直接调用）
 4. 结果封装为 `ToolResult`（`output` 或 `error`），写成 `ToolMessage` 追加到 `messages`，回到 `llm` 节点
 
 MCP 工具与 local 工具走同一 `ainvoke` 路径；区别仅在函数体内是否转发到 MCP server。
+
+### 部署 Context
+
+需要运行时资源的工具（如 RAG）在装饰器上声明 `context_keys`，启动时对 `ToolContextBundle` 执行 `bind`，再传入 `ToolBox(context=bundle)`。LLM 只见业务参数（`query` 等）；`list_tools` 会从 schema 中剔除 `_tool_context`。
+
+```python
+from rag.context import bind_rag
+from tools.context import ToolContextBundle
+from tools.tool_box import ToolBox
+
+bundle = ToolContextBundle()
+bind_rag(bundle, collection="my_collection", retrieve_profile_id="baseline")
+tool_box = ToolBox(context=bundle)
+```
+
+详细机制见 [`docs/tools/tool_box.md`](docs/tools/tool_box.md#部署-context)。
 
 ### 内置工具一览
 
 | 工具 | 类型 | 作用 |
 |------|------|------|
-| `RAG_search_tool` / `RAG_index_tool` | local | 检索 / 入库（须先 `bind_rag_context`） |
+| `RAG_search_tool` / `RAG_index_tool` | local | 检索 / 入库（须先 `bind_rag(bundle, ...)`） |
 | `tavily_search` / `tavily_extract` | mcp | 联网搜索 / 页面抽取 |
 | `convert_document` / `convert_with_ocr` | mcp | 文档 → Markdown（Markitdown） |
 | `integrate_function` | local | 示例数学工具 |
@@ -397,7 +441,7 @@ MCP 工具与 local 工具走同一 `ainvoke` 路径；区别仅在函数体内�
 
 ## 项目结构
 
-定制入口（其余顶层目录：`get_start/` 示例、`llm/` 客户端、`tests/` 单测、`eval/` 端到端评测、`docs/` 文档、`legacy/` 旧代码可忽略）：
+定制入口（其余顶层目录：`get_start/` 示例、`llm/` 客户端、`tests/` 单测、`docs/` 文档、`legacy/` 旧代码可忽略）。端到端评测已独立到 sibling 项目 **composer-eval**（本仓库 `eval/` 仅保留 README 与历史 data 归档）：
 
 ```
 composer-agentic_rag/
@@ -421,7 +465,7 @@ composer-agentic_rag/
 │   ├── build.py                 # build_RAG_indexer / build_RAG_retriever 组装
 │   ├── config.py                # 读取 arg_config.yaml
 │   ├── core.py                  # RAGIndexer / RAGRetriever 管线编排
-│   ├── context.py               # bind_rag_context（Agent / Tool 部署 RAG）
+│   ├── context.py               # bind_rag → ToolContextBundle（RAG 部署）
 │   ├── chunker/                 # ← 分块策略
 │   ├── document_augmentation/   # ← 索引期增强（contextual · predict_q · s2b）
 │   ├── embedder/
@@ -431,6 +475,7 @@ composer-agentic_rag/
 │   └── reranker/
 │
 └── tools/
+    ├── context.py               # ToolContextBundle（部署绑定，ainvoke 注入）
     ├── registry.py              # @local_tool · @mcp_tool 装饰器
     ├── tool_box.py              # 发现 · list_tools · ainvoke
     ├── LocalTool/               # ← 新增本地工具（加 .py + 装饰器即可）
@@ -455,10 +500,11 @@ pytest -c tests/pytest.ini                                       # 全量
 
 ## 延伸阅读
 
-主文档即本 README。`docs/` 仅存放**评测跑分报告**（随结果补充）：
+主文档即本 README。`docs/` 存放**选型指南**与**评测跑分报告**（随结果补充）：
 
 | 文档 | 内容 |
 |------|------|
+| `docs/profile_capability_selection.md` | RAG profile 与 Agent capability / pattern 选型（优劣势、组合建议） |
 | `docs/RAG_retrieve_eval_results.md` | RAG 检索 ablation（BEIR / HotpotQA 等） |
 | `docs/Eval_report.md` | RAG + Agent 端到端（Easy Dataset + RAGChecker） |
 

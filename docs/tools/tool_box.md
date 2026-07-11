@@ -14,6 +14,7 @@ box = ToolBox()  # 默认：自动发现 tools.LocalTool + tools.MCPTool
 
 | 参数 | 默认 | 说明 |
 |------|------|------|
+| `context` | `ToolContextBundle()` | 本实例的部署绑定；见 [部署 Context](#部署-context) |
 | `autodiscover` | `True` | 为 `True` 时在构造时扫描 `packages` 并填充内部 registry |
 | `packages` | `("tools.LocalTool", "tools.MCPTool")` | 限定扫描的包；见 [自动发现](tool_autodiscovery.md) |
 
@@ -88,6 +89,89 @@ else:
 ### `resolve(tool_path) -> Callable`
 
 按 `模块路径.函数名` 解析并缓存 callable，例如 `tools.LocalTool.math_tool.integrate_function`。一般供内部或调试使用；正常调用走 `ainvoke`。
+
+### `context -> ToolContextBundle`
+
+本实例持有的部署绑定表。在 `ToolBox(...)` 构造前或之后均可 `bundle.bind(key, value)`；`ainvoke` 只读当前 bundle。
+
+### `aclose() -> None`
+
+按注册顺序调用各 slot 的 `aclose` hook（如关闭 Qdrant 连接），并清空 bundle。Agent 侧由 `AgentRun.aclose()` 统一释放。
+
+## 部署 Context
+
+**注册**回答「有哪些工具」；**部署 context** 回答「这个 `ToolBox` 实例连的是哪套运行时资源」（collection、store、profile 等）。Context **不进 LLM schema**，只在 `ainvoke` 时注入。
+
+### 组件（`tools/context.py`）
+
+| 类型 | 职责 |
+|------|------|
+| `ToolContextBundle` | 每实例一份的 keyed slot 表：`bind` / `has` / `require` / `view` / `aclose` |
+| `ToolContextView` | 某次调用可见的 slot 切片（仅该工具在装饰器上声明的 `context_keys`） |
+| `INJECTED_CONTEXT_PARAM` | 固定为 `"_tool_context"`，注入参数名；`list_tools` 会从 schema 中剔除 |
+
+### 声明与消费
+
+1. 装饰器声明依赖的 slot：
+
+```python
+from tools.context import ToolContextView
+from tools.registry import local_tool
+
+MY_KEY = "my_deployment"
+
+@local_tool(context_keys=(MY_KEY,))
+def my_tool(query: str, *, _tool_context: ToolContextView | None = None) -> str:
+    assert _tool_context is not None
+    cfg = _tool_context.require(MY_KEY, str)
+    return f"{cfg}:{query}"
+```
+
+2. 启动时绑定，再构造 `ToolBox`：
+
+```python
+from tools.context import ToolContextBundle
+from tools.tool_box import ToolBox
+
+bundle = ToolContextBundle()
+bundle.bind(MY_KEY, "deploy-a")
+box = ToolBox(context=bundle)
+```
+
+3. `list_tools()` 生成的 schema **不含** `_tool_context`；`ainvoke` 在调用前检查 `context_keys` 是否均已 `bind`，缺失则 `ToolResult.error`（不抛异常），齐全则注入 `_tool_context= bundle.view(keys)`。
+
+### RAG 示例
+
+RAG 工具通过 `rag.context.bind_rag` 写入 bundle（连接 + 默认 profile），与 Agent 的推荐入口一致：
+
+```python
+from rag.context import bind_rag
+from tools.context import ToolContextBundle
+from tools.tool_box import ToolBox
+
+bundle = ToolContextBundle()
+bind_rag(
+    bundle,
+    collection="my_collection",
+    index_profile_id="baseline",
+    retrieve_profile_id="rerank_contextual",
+)
+box = ToolBox(context=bundle)
+# 之后可 ainvoke("RAG_search_tool", {"query": "..."})
+```
+
+`bind_rag` 注册的 slot：`rag`（`RagToolContext`：store / embedder / collection）、`rag_search_profile`、`rag_index_profile`。详见 `rag/context.py` 与 `tools/LocalTool/RAG_tool.py`。
+
+### 生命周期
+
+```python
+try:
+    result = await box.ainvoke("RAG_search_tool", {"query": "..."})
+finally:
+    await box.aclose()
+```
+
+`bind(..., aclose=...)` 可把资源清理挂到对应 slot（RAG 的 store 关闭即如此）。
 
 ## ToolResult
 

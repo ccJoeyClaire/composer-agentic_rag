@@ -19,20 +19,20 @@ from rag.serialize import RetrieveRunMeta, write_retrieve_traces_json
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _INDEX_PROFILE_IDS = (
-    "token",
-    "semantic",
+    # "token",
+    # "semantic",
     "baseline",
-    "s2b",
-    "predict_q",
-    "full",
+    # "s2b",
+    # "predict_q",
+    # "full",
 )
 _RETRIEVE_PROFILE_IDS = (
-    "plain",
+    # "plain",
     "rerank",
-    "rerank_contextual",
-    "rerank_s2b",
-    "rerank_hyde",
-    "full",
+    # "rerank_contextual",
+    # "rerank_s2b",
+    # "rerank_hyde",
+    # "full",
 )
 _QUERY = "在智能体优先的团队里，人类工程师的主要工作是什么？"
 _RUNS_DIR = Path(__file__).resolve().parent / "runs" / "retrieve"

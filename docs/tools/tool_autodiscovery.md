@@ -13,7 +13,7 @@
 ```python
 from tools.registry import local_tool   # 只是 import 装饰器，还不注册任何工具
 
-@local_tool                             # 模块被 import 时，这一行立刻执行
+@local_tool(context_keys=(...))         # 模块被 import 时，这一行立刻执行
 def RAG_search_tool(...): ...
 ```
 
@@ -95,6 +95,7 @@ async def mcp_search(...): ...
 | `source` | `"local"` 或 `"mcp"` |
 | `tool_path` | `{模块}.{函数名}`，如 `tools.LocalTool.math_tool.integrate_function` |
 | `description` | 装饰器参数，或函数 docstring |
+| `context_keys` | 部署 slot 名元组；`ainvoke` 前须在 `ToolContextBundle` 中 `bind`，见 [tool_box.md § 部署 Context](tool_box.md#部署-context) |
 
 ### `_TOOL_REGISTRY`
 
