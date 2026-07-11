@@ -6,6 +6,7 @@ Run (from repo root):
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -156,7 +157,10 @@ def load_rag_config(config_path: Path) -> RagConfig:
 
 
 def get_rag_config(config_path: Path | None = None) -> RagConfig:
-    path = config_path if config_path is not None else _DEFAULT_CONFIG_PATH
+    if config_path is not None:
+        return load_rag_config(config_path)
+    env_path = os.environ.get("RAG_CONFIG_PATH")
+    path = Path(env_path) if env_path else _DEFAULT_CONFIG_PATH
     return load_rag_config(path)
 
 

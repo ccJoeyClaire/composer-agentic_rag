@@ -92,8 +92,3 @@ def build_run(request: RequestConfig) -> AgentRun:
         tool_box=tool_box,
     )
     return AgentRun(graph=build_agent(agent_config), llm=llm, tool_box=tool_box)
-
-
-def build_graph(request: RequestConfig) -> CompiledStateGraph:
-    """Bind RAG, assemble ``AgentConfig``, and return a compiled LangGraph."""
-    return build_run(request).graph

@@ -21,7 +21,7 @@ from langchain_core.messages import HumanMessage
 from tqdm import tqdm
 
 from agent.output import OutputState
-from agent.pattern.common import RequestConfig, build_run
+from agent.pattern.common import AgentRun, RequestConfig, build_run
 from agent.pattern.config import get_agent_pattern_config
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -29,17 +29,17 @@ RUNS_DIR = Path(__file__).resolve().parent / "runs" / "agent"
 
 SMOKE_PATTERNS = (
     # "self_rag", 
-    "crag", 
-    "crag_self_rag"
+    # "crag", 
+    "crag_self_rag",
 )
 
 # preset_id → (index_profile_id, retrieve_profile_id)
 PRESETS: dict[str, tuple[str, str]] = {
-    "token": ("token", "plain"),
+    # "token": ("token", "plain"),
     # "semantic": ("semantic", "plain"),
     # "semantic_rerank": ("semantic", "rerank"),
-    "baseline": ("baseline", "rerank_contextual"),
-    "baseline_s2b": ("s2b", "rerank_s2b"),
+    # "baseline": ("baseline", "rerank_contextual"),
+    # "baseline_s2b": ("s2b", "rerank_s2b"),
     "baseline_hyde": ("baseline", "rerank_hyde"),
     # "baseline_predict_q": ("predict_q", "rerank_contextual"),
     # "full": ("full", "full"),
@@ -91,6 +91,8 @@ def require_env_keys(*, pattern_id: str) -> None:
 
 async def run_query(
     *,
+    run: AgentRun,
+    request_config: RequestConfig,
     pattern_id: str,
     preset_id: str,
     index_profile_id: str,
@@ -99,21 +101,10 @@ async def run_query(
     query: str,
     pbar: tqdm | None = None,
 ) -> None:
-    """Invoke the agent for one pattern / preset / query and write artifacts."""
-    request_config = RequestConfig(
-        pattern_id=pattern_id,
-        collection=collection_for(index_profile_id),
-        index_profile_id=index_profile_id,
-        retrieve_profile_id=retrieve_profile_id,
-        enable_web_search=True,
+    """Invoke the agent for one query and write artifacts."""
+    raw = await run.graph.ainvoke(
+        {"messages": [HumanMessage(content=query)], "metadata": {}}
     )
-    run = build_run(request_config)
-    try:
-        raw = await run.graph.ainvoke(
-            {"messages": [HumanMessage(content=query)], "metadata": {}}
-        )
-    finally:
-        await run.aclose()
 
     output = OutputState.from_state(
         raw,
@@ -155,20 +146,33 @@ async def main() -> None:
             require_env_keys(pattern_id=pattern_id)
             for preset_id, (index_profile_id, retrieve_profile_id) in PRESETS.items():
                 pbar.set_postfix(pattern=pattern_id, preset=preset_id, refresh=False)
-                await asyncio.gather(
-                    *(
-                        run_query(
-                            pattern_id=pattern_id,
-                            preset_id=preset_id,
-                            index_profile_id=index_profile_id,
-                            retrieve_profile_id=retrieve_profile_id,
-                            query_id=spec["query_id"],
-                            query=spec["query"],
-                            pbar=pbar,
-                        )
-                        for spec in QUERIES
-                    )
+                request_config = RequestConfig(
+                    pattern_id=pattern_id,
+                    collection=collection_for(index_profile_id),
+                    index_profile_id=index_profile_id,
+                    retrieve_profile_id=retrieve_profile_id,
+                    enable_web_search=True,
                 )
+                run = build_run(request_config)
+                try:
+                    await asyncio.gather(
+                        *(
+                            run_query(
+                                run=run,
+                                request_config=request_config,
+                                pattern_id=pattern_id,
+                                preset_id=preset_id,
+                                index_profile_id=index_profile_id,
+                                retrieve_profile_id=retrieve_profile_id,
+                                query_id=spec["query_id"],
+                                query=spec["query"],
+                                pbar=pbar,
+                            )
+                            for spec in QUERIES
+                        )
+                    )
+                finally:
+                    await run.aclose()
 
 
 if __name__ == "__main__":
